@@ -1,219 +1,77 @@
-"""Règles de déduction : à partir de la boîte de réception et de mes tickets, ce qui m'attend.
+"""Règles d'affichage : de la boîte de réception et de mes tickets aux lignes du menu.
 
-Deux sources, deux rôles. La **boîte de réception** dit ce qui est arrivé et n'a pas été lu :
-c'est elle, et elle seule, qui alimente la pastille rouge — une notification non lue vaut un.
-Mes **tickets** disent l'état du travail : échéances, blocages, tickets en cours, et les
-conversations que la boîte a déjà oubliées parce qu'on a lu le message sans y répondre.
+Quatre sections, dans l'ordre où on les lit : ce que la boîte contient encore, ce qu'on y a
+rangé, les tickets qui me sont assignés, ceux qui sont clos. Rien d'autre — l'app montre l'état
+de Linear, elle n'en déduit pas une seconde liste de travail à côté.
 
-Rien n'est jamais compté deux fois : un ticket dont une notification attend déjà ne réapparaît
-pas dans les sections informatives.
+**Un sujet, une ligne.** Linear regroupe dans sa boîte tous les événements d'un même ticket :
+l'app fait pareil, sinon deux comptes voisins racontent deux histoires différentes. La pastille
+d'une ligne vaut donc un, quel que soit le nombre d'événements qu'elle porte, et le badge de la
+barre compte des sujets, comme la boîte de Linear. Le nombre d'événements se lit sur la ligne.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from .config import Config
 from .formatting import excerpt, join, since, until
-from .models import (
-    CLOSED_STATES,
-    GROUPS,
-    ORDER,
-    Comment,
-    Issue,
-    Item,
-    Kind,
-    Note,
-    Work,
-)
+from .models import GROUPS, ORDER, Issue, Item, Kind, Note, Work, event_label
 
 MAX_CHIPS = 5
-# Réactions qui valent accusé de réception : le point est acté, le message n'attend plus rien.
-# Linear sert l'emoji brut ou son nom court selon l'origine du message, d'où les deux formes.
-ACKNOWLEDGED = {"👍", "+1", "thumbsup", "👎", "-1", "thumbsdown", "✅", "white_check_mark", "heavy_check_mark"}
-# Nature d'une notification en français, pour l'infobulle. Ce qui n'y est pas s'affiche sous
-# son nom Linear : c'est moins beau, mais jamais faux.
-TYPE_LABELS = {
-    "issueNewComment": "commentaire",
-    "issueCommentMention": "mention dans un message",
-    "issueMention": "mention dans la description",
-    "issueAssignedToYou": "assignation",
-    "issueUnassignedFromYou": "désassignation",
-    "issueStatusChanged": "changement de statut",
-    "issueStatusChangedAll": "changement de statut",
-    "issueReopened": "réouverture",
-    "issueEmojiReaction": "réaction sur le ticket",
-    "issueCommentReaction": "réaction sur un message",
-    "issueAddedToTriage": "arrivée en triage",
-    "issueThreadResolved": "fil clos",
-    "issueDue": "échéance",
-    "issueSlaBreached": "SLA dépassé",
-    "issueSlaHighRisk": "SLA en danger",
-    "issuePriorityUrgent": "passage en urgent",
-    "issueBlocking": "ticket bloquant",
-    "issueUnblocked": "déblocage",
-    "issueReminder": "rappel",
-    "projectUpdateCreated": "update de projet",
-    "projectUpdatePrompt": "update de projet à écrire",
-    "projectNewComment": "commentaire de projet",
-    "projectUpdateNewComment": "commentaire sur un update",
-    "projectDescriptionContentChange": "description de projet modifiée",
-    "projectAddedAsLead": "projet confié",
-    "projectAddedAsMember": "ajout à un projet",
-    "documentMention": "mention dans un document",
-    "documentNewComment": "commentaire de document",
-    "documentContentChange": "document modifié",
-    "issueSubscribed": "abonnement",
-    "issueCreated": "création",
-    "teamUpdateCreated": "update d'équipe",
-    "pullRequestReviewRequested": "review demandée",
-    "pullRequestApproved": "PR approuvée",
-    "pullRequestChangesRequested": "changements demandés",
-    "pullRequestChecksFailed": "CI en échec",
-    "pullRequestCommented": "commentaire de PR",
-}
+TRASHED = "ticket supprimé"
+# Préfixe des pastilles d'état dessinées, et gris que Linear donne à ce qui est clos.
+STATE_MARK = "state:"
+TRASH_COLOUR = "#95a2b3"
 
 
 def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _acked(comment: Comment, me: str) -> bool:
-    """Ai-je acté ce message d'une réaction ? Un point acté n'attend plus rien."""
-    return any(
-        (emoji or "").strip().lower() in ACKNOWLEDGED and (not me or author == me)
-        for emoji, author in comment.reactions
-    )
+def _chips(issue: Issue | None, events: int = 0) -> tuple[tuple[str, str], ...]:
+    """Pastilles grises d'une ligne : le nombre d'événements, puis l'état du ticket.
 
-
-def _spoken_by(comment: Comment, me: str) -> bool:
-    """Est-ce moi qui parle ? Le nom d'affichage sert dans les deux modes.
-
-    `isMe` ne vaut que pour le propriétaire de la clé : en « voir en tant que », il désignerait
-    la mauvaise personne. Le nom, lui, est le même partout.
+    Elles ne comptent rien dans la barre — c'est la pastille colorée qui compte, et elle vaut un
+    sujet. Celle-ci dit seulement combien de choses sont arrivées sur ce sujet.
     """
-    return comment.author == me or (comment.is_mine and not me)
-
-
-def _humans(comments: tuple[Comment, ...], ignored: set[str]) -> list[Comment]:
-    return [
-        comment
-        for comment in comments
-        if not comment.is_bot and comment.author.lower() not in ignored
-    ]
-
-
-def _threads(comments: list[Comment]) -> tuple[list[list[Comment]], list[Comment]]:
-    """Les fils de discussion, et la liste plate des messages de premier niveau.
-
-    Linear pose les messages racine à plat et les réponses dessous : répondre dans un fil
-    répond au fil, alors que reprendre la parole en bas du ticket ne répond à personne en
-    particulier. Les deux ne se jugent donc pas de la même façon.
-    """
-    roots = [comment for comment in comments if not comment.parent_id]
-    children: dict[str, list[Comment]] = {}
-    for comment in comments:
-        if comment.parent_id:
-            children.setdefault(comment.parent_id, []).append(comment)
-    threads = []
-    for root in roots:
-        if kids := children.get(root.id):
-            threads.append([root, *sorted(kids, key=lambda entry: entry.created_at)])
-    orphans = [
-        comment
-        for comment in comments
-        if comment.parent_id and comment.parent_id not in {root.id for root in roots}
-    ]
-    return threads, roots + orphans
-
-
-def _pending(thread: list[Comment], me: str) -> list[Comment]:
-    """Messages des autres depuis ma dernière prise de parole dans ce fil.
-
-    Une réaction posée dessus vaut réponse : le point est acté, il n'y a plus à y revenir.
-    """
-    spoke = [index for index, comment in enumerate(thread) if _spoken_by(comment, me)]
-    after = thread[spoke[-1] + 1 :] if spoke else thread
-    return [comment for comment in after if not _spoken_by(comment, me) and not _acked(comment, me)]
-
-
-def _names(body: str, me: str) -> bool:
-    """`@moi` dans un message, sous les deux écritures de Linear.
-
-    Linear enregistre une mention en `@[Nom](/profiles/…)` dans le corps, et le nom court
-    passe tel quel : les deux doivent être reconnus.
-    """
-    if not me:
-        return False
-    return re.search(rf"@\[?[^\]\s]*{re.escape(me)}", body or "", re.IGNORECASE) is not None
-
-
-def _flat_pending(flat: list[Comment], me: str) -> list[Comment]:
-    """Messages du bas du ticket qui attendent encore quelque chose de moi.
-
-    Reprendre la parole en bas d'un ticket répond à ce qui précède : la liste est
-    chronologique, et personne n'y attend une réponse à un message que j'ai enjambé — sauf
-    s'il me nomme. Être nommé est une sollicitation qui ne se dissout pas parce que j'ai parlé
-    d'autre chose ensuite ; seule une réponse citée ou une réaction l'éteint.
-    """
-    spoke = [index for index, comment in enumerate(flat) if _spoken_by(comment, me)]
-    last = spoke[-1] if spoke else -1
-    quoted = [
-        " ".join(comment.quoted.split()).lower()
-        for comment in flat
-        if _spoken_by(comment, me) and comment.quoted
-    ]
-
-    def answered(comment: Comment) -> bool:
-        gist = " ".join(comment.body.split()).lower()[:80]
-        return bool(gist) and any(gist[:40] in quote for quote in quoted)
-
-    return [
-        comment
-        for index, comment in enumerate(flat)
-        if not _spoken_by(comment, me)
-        and (index > last or _names(comment.body, me))
-        and not answered(comment)
-        and not _acked(comment, me)
-    ]
-
-
-def _chips(issue: Issue | None, moment: datetime | None = None) -> tuple[tuple[str, str], ...]:
-    """Drapeaux d'état du ticket, sans nombre : ils ne comptent aucune notification."""
-    if issue is None:
-        return ()
     flags: list[tuple[str, str]] = []
+    if events > 1:
+        flags.append(("bell", str(events)))
+    if issue is None:
+        return tuple(flags)
     if issue.priority == 1:
         flags.append(("exclamationmark.octagon", ""))
-    if issue.due is not None and issue.due < (moment or now()):
+    if issue.due is not None and issue.due < now():
         flags.append(("calendar.badge.exclamationmark", ""))
     if issue.blockers:
         flags.append(("hand.raised", ""))
-    if issue.sla_at is not None and issue.sla_at < (moment or now()):
+    if issue.sla_at is not None and issue.sla_at < now():
         flags.append(("timer", ""))
-    if issue.state_type == "started":
-        flags.append(("play.circle", ""))
-    elif issue.state_type == "triage":
-        flags.append(("tray", ""))
-    elif issue.state_type in CLOSED_STATES:
-        flags.append(("checkmark.circle" if issue.completed else "xmark.circle", ""))
+    if issue.trashed:
+        flags.append((f"{STATE_MARK}trashed:{TRASH_COLOUR}", ""))
+    elif issue.state_type:
+        flags.append((f"state:{issue.state_type}:{issue.colour}", issue.state))
     return tuple(flags)
 
 
 def _tag(issue: Issue | None) -> str:
-    """L'unique état qui doit sauter aux yeux, quand il y en a un."""
+    """L'unique état qui doit sauter aux yeux, quand il y en a un.
+
+    C'est ce qui remplace les sections déduites d'autrefois : l'échéance et le blocage se lisent
+    sur la ligne du ticket, là où ils servent, plutôt que dans une section à eux.
+    """
     if issue is None:
         return ""
     if issue.due is not None and issue.due < now():
         return "en retard"
     if issue.sla_at is not None and issue.sla_at < now():
         return "SLA"
-    if issue.priority == 1:
-        return "urgent"
     if issue.blockers:
         return "bloqué"
+    if issue.priority == 1:
+        return "urgent"
     return ""
 
 
@@ -224,31 +82,14 @@ def _route(issue: Issue | None) -> str:
 
 
 def _item(
-    kind: Kind,
-    key: str,
-    title: str,
-    at: datetime,
-    url: str,
-    *,
-    issue: Issue | None = None,
-    detail: str = "",
-    counted: tuple[tuple[str, int], ...] = (),
-    weight: int | None = None,
-    **extra,
+    kind: Kind, key: str, title: str, at: datetime, url: str, *, issue=None, detail="", events=0, **extra
 ) -> Item:
     """Une ligne : titre en haut, métadonnées uniformes en dessous.
 
-    `counted` porte les pastilles chiffrées, celles qui décomposent la pastille de la barre. Le
-    poids en est déduit, ce qui garantit par construction que les nombres d'une ligne
-    s'additionnent jusqu'au badge. Les drapeaux d'état viennent après, sans nombre.
+    Le poids vaut un dès que la ligne porte une pastille, jamais plus : une ligne, un sujet, une
+    unité dans le badge. Le nombre d'événements passe en pastille grise.
     """
-    countable = GROUPS[kind].is_action or bool(extra.get("warm"))
-    if countable and not counted and weight is None:
-        counted = ((GROUPS[kind].symbol, 1),)
-    numbered = tuple((symbol, str(number)) for symbol, number in counted if number)
-    taken = {symbol for symbol, _ in numbered}
-    flags = tuple(flag for flag in _chips(issue) if flag[0] not in taken)
-    total = sum(number for _, number in counted) if countable else 0
+    counted = GROUPS[kind].is_action
     return Item(
         id=f"{kind.value}:{key}",
         kind=kind,
@@ -256,11 +97,11 @@ def _item(
         detail=detail,
         url=url,
         at=at,
-        fingerprint=f"{key}:{at.isoformat()}",
+        fingerprint=f"{key}:{at.isoformat()}:{events}",
         team=issue.team if issue else "",
         ident=issue.identifier if issue else "",
-        weight=total if weight is None else weight,
-        chips=(numbered + flags)[:MAX_CHIPS],
+        weight=1 if counted else 0,
+        chips=_chips(issue, events)[:MAX_CHIPS],
         route=_route(issue),
         tag=_tag(issue),
         **extra,
@@ -270,331 +111,222 @@ def _item(
 def _subject(note: Note) -> str:
     if note.issue:
         return note.issue.title
-    if note.title:
-        return note.title
-    return note.entity or TYPE_LABELS.get(note.type, note.type)
+    return note.title or note.entity or event_label(note.type)
 
 
-def _meta(note: Note) -> str:
-    """Métadonnées d'une notification : où, de qui, depuis quand, dans quel état.
-
-    Hors ticket, Linear titre souvent la notification du nom de l'entité : répéter ce nom en
-    dessous ne dirait rien. On y met alors la nature de l'événement.
-    """
-    who = f"@{note.actor}" if note.actor else ""
+def _where(note: Note) -> str:
+    """D'où vient l'événement : le ticket, ou l'entité visée à défaut."""
     if note.issue:
-        return join(note.issue.identifier, who, since(note.updated_at), note.issue.state)
-    nature = TYPE_LABELS.get(note.type, note.type)
-    entity = note.entity if note.entity and note.entity.split(" ", 1)[-1] not in note.title else ""
-    return join(entity or nature, who, since(note.updated_at))
+        return note.issue.identifier
+    return note.entity or note.subtitle
 
 
-# Natures de notification qui portent une conversation : elles seules rendent inutile la
-# relecture des messages du ticket.
-TALKING = (Kind.ANSWER, Kind.REPLIES, Kind.MENTION)
+def _people(batch: list[Note]) -> dict[str, str]:
+    """Un visage par personne, la première à s'être manifestée en tête."""
+    faces: dict[str, str] = {}
+    for note in sorted(batch, key=lambda entry: entry.updated_at):
+        if note.actor_face:
+            faces.setdefault(note.actor, note.actor_face)
+    return faces
 
 
-def inbox_items(notes: list[Note], cfg: Config) -> tuple[list[Item], set[str], set[str]]:
-    """Les notifications, regroupées par sujet : une ligne par ticket, par nature et par chaleur.
+def _natures(batch: list[Note]) -> str:
+    """Ce qui est arrivé sur ce sujet, du plus récent au plus ancien, sans redite."""
+    seen: list[str] = []
+    for note in sorted(batch, key=lambda entry: entry.updated_at, reverse=True):
+        label = event_label(note.type)
+        if label not in seen:
+            seen.append(label)
+    return ", ".join(seen)
 
-    La boîte de réception *est* la liste de ce qu'il reste à faire, et Linear le dit en trois
-    états : non lue, c'est chaud ; lue mais toujours dans la boîte, c'est à faire sans urgence ;
-    rangée, c'est fait. Les deux premiers comptent, chacun dans sa pastille, et leur somme est
-    exactement ce que la boîte contient.
 
-    Une ligne ne mélange jamais les deux chaleurs : un ticket qui a du neuf et du déjà-lu donne
-    deux lignes, une rouge et une bleue, parce qu'elles ne demandent pas la même chose.
+def _group(notes: list[Note]) -> dict[str, list[Note]]:
+    """Les notifications rassemblées par sujet, comme la boîte de Linear les affiche."""
+    groups: dict[str, list[Note]] = {}
+    for note in notes:
+        groups.setdefault(note.key, []).append(note)
+    return groups
+
+
+def _excerpt_of(batch: list[Note]) -> str:
+    """Le dernier message écrit sur ce sujet, s'il y en a un."""
+    for note in sorted(batch, key=lambda entry: entry.updated_at, reverse=True):
+        if note.comment and note.comment.body:
+            return excerpt(note.comment.body)
+    return ""
+
+
+def inbox_items(notes: list[Note]) -> list[Item]:
+    """Ce que la boîte contient encore : une ligne par sujet, la plus récente en tête.
+
+    Rouge tant qu'un événement du sujet n'a pas été lu, violet quand tout l'a été sans être
+    rangé. Un sujet dont tout est en sommeil attend son réveil sans compter dans aucun badge.
     """
     items: list[Item] = []
-    covered: set[str] = set()
-    talked: set[str] = set()
-    # Clé de regroupement : la nature, le sujet, et la chaleur.
-    groups: dict[tuple[Kind, str, bool], list[Note]] = {}
-    asleep: list[Note] = []
-    filed: list[Note] = []
-    for note in notes:
-        if note.archived:
-            filed.append(note)  # rangée dans l'inbox : c'est fait, il en reste l'histoire
-        elif note.asleep:
-            asleep.append(note)  # remise à plus tard par Linear : elle ne compte pas d'ici là
-        else:
-            groups.setdefault((note.kind, note.key, note.unread), []).append(note)
-    for (kind, key, hot), batch in groups.items():
-        batch.sort(key=lambda entry: entry.updated_at)
-        latest = max(entry.updated_at for entry in batch)
-        first = batch[0]
-        # Un visage par personne, dans l'ordre où elle s'est manifestée.
-        faces: dict[str, str] = {}
-        for note in batch:
-            if note.actor_face:
-                faces.setdefault(note.actor, note.actor_face)
-        natures: dict[str, int] = {}
-        for note in batch:
-            nature = TYPE_LABELS.get(note.type, note.type)
-            natures[nature] = natures.get(nature, 0) + 1
-        issue = next((note.issue for note in batch if note.issue), None)
-        if issue is not None:
-            # Chaude ou tiède, la notification est là : inutile de relire les messages du
-            # ticket pour retrouver ce qu'elle porte déjà.
-            covered.add(issue.id)
-            if kind in TALKING:
-                talked.add(issue.id)
-        body = next((excerpt(note.comment.body) for note in batch if note.comment and note.comment.body), "")
+    for key, batch in _group([note for note in notes if not note.archived and not note.stale]).items():
+        awake = [note for note in batch if not note.asleep]
+        latest = max(batch, key=lambda note: note.updated_at)
+        oldest = min(awake or batch, key=lambda note: note.updated_at)
+        faces = _people(batch)
         who = ", ".join(f"@{name}" for name in faces) or "Linear"
-        state = "non lue(s)" if hot else "lue(s), pas encore rangée(s)"
+        sleeping = [note.snoozed_until for note in batch if note.asleep and note.snoozed_until]
+        rest = f"réveil {until(min(sleeping))}" if sleeping and not awake else ""
+        hot = any(note.unread for note in awake)
+        state = "non lue(s)" if hot else "lue(s), pas encore rangée(s)" if awake else "en sommeil"
         items.append(
             _item(
-                kind,
-                f"{key}:{'hot' if hot else 'warm'}",
-                _subject(first),
-                latest,
-                first.url,
-                issue=issue,
-                detail=join(_meta(first), body),
-                counted=((GROUPS[kind].symbol, len(batch)),),
-                avatar=first.actor_face,
+                Kind.INBOX,
+                key,
+                _subject(latest),
+                latest.updated_at,
+                oldest.url or latest.url,
+                issue=latest.issue,
+                detail=join(
+                    _where(latest),
+                    f"notifié par @{latest.actor}" if latest.actor else "",
+                    since(latest.updated_at),
+                    _natures(batch),
+                    _excerpt_of(batch),
+                    rest,
+                ),
+                events=len(batch),
+                avatar=latest.actor_face,
                 faces=tuple(faces.values()),
                 warm=not hot,
-                hint=f"{len(batch)} notification(s) {state} de {who} : "
-                + ", ".join(f"{count} × {nature}" for nature, count in natures.items()),
-            )
-        )
-    items += _asleep_items(asleep)
-    items += _read_items(filed, cfg)
-    return items, covered, talked
-
-
-def _asleep_items(notes: list[Note]) -> list[Item]:
-    """Notifications mises en sommeil : Linear les cache, l'app dit quand elles reviennent."""
-    items = []
-    for note in sorted(notes, key=lambda entry: entry.snoozed_until or entry.updated_at):
-        wake = note.snoozed_until
-        items.append(
-            _item(
-                Kind.SNOOZED,
-                note.id,
-                _subject(note),
-                note.updated_at,
-                note.url,
-                issue=note.issue,
-                detail=join(_meta(note), f"réveil {until(wake)}" if wake else ""),
-                avatar=note.actor_face,
-                weight=0,
-                hint="en sommeil : elle ne compte pas tant qu'elle n'est pas revenue",
+                asleep=not awake,
+                hint=f"{len(batch)} événement(s) de {who}, {state} : {_natures(batch)}",
             )
         )
     return items
 
 
-def _read_items(notes: list[Note], cfg: Config) -> list[Item]:
-    """L'histoire de la boîte : ce qui a été rangé dans Linear, du plus récent au plus ancien."""
-    if not cfg.show_read:
+def filed_items(notes: list[Note], cfg: Config) -> list[Item]:
+    """L'histoire de la boîte : ce qui en est sorti, par sujet, du plus récent au plus ancien.
+
+    Un ticket parti à la corbeille y tombe aussi : Linear laisse parfois sa notification non
+    lue, mais son lien n'ouvre plus rien et rien ne pourrait l'éteindre.
+    """
+    if not cfg.show_filed:
         return []
-    floor = now() - timedelta(days=max(1, cfg.read_days))
+    floor = now() - timedelta(days=max(1, cfg.filed_days))
 
     def when(note: Note) -> datetime:
-        return note.read_at or note.archived_at or note.updated_at
+        return note.archived_at or note.read_at or note.updated_at
 
-    kept = [note for note in notes if when(note) > floor]
-    # Groupées par sujet : vingt notifications sur le même ticket sont une ligne, pas vingt.
-    # Sans cela l'historique d'un ticket bavard chasse tous les autres de la liste.
-    groups: dict[str, list[Note]] = {}
-    for note in sorted(kept, key=when, reverse=True):
-        groups.setdefault(note.key, []).append(note)
+    kept = [note for note in notes if (note.archived or note.stale) and when(note) > floor]
     items = []
-    for key, batch in groups.items():
-        latest = batch[0]
-        natures: dict[str, int] = {}
-        for note in batch:
-            nature = TYPE_LABELS.get(note.type, note.type)
-            natures[nature] = natures.get(nature, 0) + 1
-        faces: dict[str, str] = {}
-        for note in reversed(batch):
-            if note.actor_face:
-                faces.setdefault(note.actor, note.actor_face)
+    for key, batch in _group(kept).items():
+        latest = max(batch, key=when)
+        natures = _natures(batch)
+        # « ticket supprimé » est déjà le nom d'un événement : ne le dire qu'une fois.
+        gone = any(note.stale for note in batch) and TRASHED not in natures
+        faces = _people(batch)
         items.append(
             _item(
-                Kind.READ,
+                Kind.FILED,
                 key,
                 _subject(latest),
                 when(latest),
                 latest.url,
                 issue=latest.issue,
-                detail=join(_meta(latest), ", ".join(natures)),
-                counted=((GROUPS[Kind.READ].symbol, len(batch)),),
-                weight=0,
+                detail=join(
+                    _where(latest),
+                    f"notifié par @{latest.actor}" if latest.actor else "",
+                    since(when(latest)),
+                    natures,
+                    TRASHED if gone else "",
+                ),
+                events=len(batch),
                 avatar=latest.actor_face,
                 faces=tuple(faces.values()),
-                hint=f"{len(batch)} notification(s) rangée(s) : "
-                + ", ".join(f"{count} × {nature}" for nature, count in natures.items()),
+                hint=(f"{TRASHED} — " if any(note.stale for note in batch) else "")
+                + f"{len(batch)} événement(s) rangé(s) : {natures}",
             )
         )
     return items
 
 
-def _issue_meta(issue: Issue, extra: str = "", at: datetime | None = None) -> str:
-    who = f"@{issue.assignee}" if issue.assignee else "sans assigné"
-    return join(issue.identifier, who, since(at or issue.at), issue.state, extra)
-
-
-def _issue_item(kind: Kind, issue: Issue, hint: str, extra: str = "", **more) -> Item:
+def _issue_item(kind: Kind, issue: Issue, at: datetime, hint: str, extra: str = "") -> Item:
+    """Une ligne de ticket. Le visage est celui du créateur : l'assigné, c'est la personne
+    observée, elle n'apprend rien à sa propre liste."""
+    who = f"créé par @{issue.creator}" if issue.creator else "sans créateur connu"
     return _item(
         kind,
         issue.id,
         issue.title,
-        issue.at,
+        at,
         issue.url,
         issue=issue,
-        detail=_issue_meta(issue, extra),
-        avatar=issue.assignee_face,
-        weight=0,
+        detail=join(issue.identifier, who, since(at), extra),
+        avatar=issue.creator_face or issue.assignee_face,
         hint=hint,
-        **more,
     )
 
 
-def work_items(work: Work, me: str, cfg: Config, covered: set[str]) -> list[Item]:
-    """Mes tickets : une seule ligne par ticket, dans la section qui dit ce qui le retient.
+def mine_items(work: Work) -> list[Item]:
+    """Mes tickets ouverts, du plus récemment bougé au plus dormant.
 
-    L'ordre des cas est l'ordre de ce qui commande : une échéance dépassée passe devant un
-    blocage, un blocage devant l'inactivité, l'inactivité devant le simple « en cours ».
+    Le tri fait le travail des anciennes sections déduites : ce qui n'a pas bougé depuis des
+    semaines tombe de lui-même en bas de la liste, et ce qui coince porte son étiquette.
     """
-    moment = now()
-    stale_floor = moment - timedelta(days=max(1, cfg.stale_days))
-    soon = moment + timedelta(days=max(1, cfg.due_soon_days))
-    items: list[Item] = []
-    seen = set(covered)
+    items = []
     for issue in sorted(work.mine, key=lambda entry: entry.at, reverse=True):
-        if issue.id in seen or not issue.open:
+        if not issue.open:
             continue
-        seen.add(issue.id)
-        blockers = issue.blockers
-        if issue.due is not None and issue.due < moment:
-            items.append(_issue_item(Kind.OVERDUE, issue, f"échéance {until(issue.due)}", urgent=True))
-        elif blockers:
-            names = ", ".join(link.other for link in blockers)
-            items.append(
-                _issue_item(Kind.BLOCKED, issue, f"bloqué par {names}", extra=f"bloqué par {names}")
-            )
-        elif issue.state_type == "started" and issue.at < stale_floor:
-            items.append(_issue_item(Kind.STALE, issue, f"en cours, sans activité {since(issue.at)}"))
-        elif issue.due is not None and issue.due < soon:
-            items.append(_issue_item(Kind.DUE_SOON, issue, f"échéance {until(issue.due)}"))
-        elif issue.blocks:
-            names = ", ".join(link.other for link in issue.blocks)
-            items.append(_issue_item(Kind.BLOCKING, issue, f"bloque {names}", extra=f"bloque {names}"))
-        elif issue.state_type == "started":
-            items.append(_issue_item(Kind.IN_PROGRESS, issue, "en cours, rien ne le retient"))
-        else:
-            items.append(_issue_item(Kind.TODO, issue, f"{issue.state} : pas encore démarré"))
-    for issue in sorted(work.created, key=lambda entry: entry.at, reverse=True):
-        if issue.id in seen or not issue.open or issue.assignee == me:
-            continue
-        seen.add(issue.id)
-        who = f"@{issue.assignee}" if issue.assignee else "personne"
-        items.append(_issue_item(Kind.CREATED_WAITING, issue, f"créé par toi, {who} l'a en main"))
-    for issue in sorted(work.triage, key=lambda entry: entry.at, reverse=True):
-        if issue.id in seen:
-            continue
-        seen.add(issue.id)
-        items.append(_issue_item(Kind.TRIAGE_QUEUE, issue, f"en triage dans {issue.team}"))
-    touched = 0
-    for issue in sorted(work.touched, key=lambda entry: entry.at, reverse=True):
-        if issue.id in seen or touched >= max(1, cfg.touched_rows):
-            continue
-        seen.add(issue.id)
-        touched += 1
-        items.append(_issue_item(Kind.TOUCHED, issue, "tu y as parlé ou tu le suis, et il a bougé"))
-    return items
-
-
-def conversation_items(issues: list[Issue], me: str, cfg: Config, covered: set[str]) -> list[Item]:
-    """Messages restés sans réponse, que la boîte de réception a déjà oubliés.
-
-    Une notification lue disparaît du compte, même si la question qu'elle portait n'a jamais eu
-    de réponse. C'est là que les demandes se perdent : ces lignes les rattrapent. Sur un ticket
-    clôturé, la ligne compte dans la pastille secondaire — plus rien ne la ramènera autrement.
-
-    Deux bornes, sans quoi la section devient un cimetière : une fenêtre de temps, parce qu'une
-    question de trois mois que personne n'a relancée n'attend plus rien ; et le fait que le
-    ticket soit à moi, ou qu'un des messages me nomme. Un échange entre deux collègues sur un
-    ticket où j'ai parlé une fois ne m'attend pas.
-    """
-    ignored = cfg.ignored()
-    floor = now() - timedelta(days=max(1, cfg.pending_days))
-    items: list[Item] = []
-    for issue in issues:
-        if issue.id in covered or not issue.comments:
-            continue
-        humans = _humans(issue.comments, ignored)
-        if not humans:
-            continue
-        threads, flat = _threads(humans)
-        waiting: list[Comment] = []
-        for thread in threads:
-            if thread[0].resolved:
-                continue  # un fil clos est un point traité
-            waiting += _pending(thread, me)
-        # Les messages de premier niveau qui ouvrent un fil sont déjà jugés dans leur fil.
-        in_threads = {comment.id for thread in threads for comment in thread}
-        waiting += _flat_pending([comment for comment in flat if comment.id not in in_threads], me)
-        waiting = [comment for comment in waiting if comment.created_at > floor]
-        if not waiting:
-            continue
-        mine = me in (issue.assignee, issue.creator)
-        if not mine and not any(_names(comment.body, me) for comment in waiting):
-            continue
-        oldest = min(waiting, key=lambda comment: comment.created_at)
-        latest = max(comment.created_at for comment in waiting)
-        closed = not issue.open
-        faces: dict[str, str] = {}
-        for comment in sorted(waiting, key=lambda entry: entry.created_at):
-            faces.setdefault(comment.author, comment.author_face)
-        who = ", ".join(f"@{name}" for name in faces)
+        blockers = ", ".join(link.other for link in issue.blockers)
         items.append(
-            _item(
-                Kind.PENDING_REPLY,
-                issue.id,
-                issue.title,
-                latest,
-                oldest.url or issue.url,
-                issue=issue,
-                detail=join(_issue_meta(issue, at=oldest.created_at), excerpt(oldest.body)),
-                weight=0,
-                avatar=oldest.author_face,
-                faces=tuple(faces.values()),
-                hint=f"{len(waiting)} message(s) de {who} sans réponse de ta part"
-                + (" — sur un ticket clôturé" if closed else " — la boîte les a déjà rangés"),
+            _issue_item(
+                Kind.MINE,
+                issue,
+                issue.at,
+                f"{issue.state} — bloqué par {blockers}" if blockers else f"{issue.state}, bougé {since(issue.at)}",
+                extra=f"bloqué par {blockers}" if blockers else "",
             )
         )
     return items
 
 
-def done_items(issues: list[Issue], me: str, cfg: Config) -> list[Item]:
-    """Mes tickets sortis du périmètre ouvert : qui les a clôturés, et quand.
+def closed_items(work: Work, cfg: Config, notes: list[Note] | None = None) -> list[Item]:
+    """Mes tickets sortis de la liste, du plus récent au plus ancien, et par la main de qui.
 
-    De l'histoire, pas du travail : la ligne ne compte dans aucune pastille. Le point ● suffit
-    à signaler qu'une clôture est arrivée depuis la dernière ouverture du menu.
+    L'historique d'états dit qui a clôturé, mais une suppression n'est pas une transition : son
+    auteur ne se trouve que dans la notification `issueDeleted`, quand elle est encore là.
     """
-    floor = now() - timedelta(days=max(1, cfg.done_days))
+    if not cfg.show_closed:
+        return []
+    floor = now() - timedelta(days=max(1, cfg.closed_days))
+    deleted_by = {
+        note.issue.id: (note.actor, note.actor_face)
+        for note in (notes or [])
+        if note.type == "issueDeleted" and note.issue and note.actor
+    }
     items = []
-    for issue in sorted(issues, key=lambda entry: entry.closed_at or entry.at, reverse=True):
+    for issue in sorted(work.done, key=lambda entry: entry.closed_at or entry.at, reverse=True):
         when = issue.closed_at or issue.at
-        if when < floor or issue.open:
+        if (issue.open and not issue.trashed) or when < floor:
             continue
-        verb = "annulé" if issue.canceled else "terminé"
-        by = f"{verb} par @{issue.closed_by}" if issue.closed_by else verb
+        verb = (
+            "supprimé"
+            if issue.trashed
+            else "annulé"
+            if issue.canceled
+            else "marqué en doublon"
+            if issue.state_type == "duplicate"
+            else "terminé"
+        )
+        actor, face = deleted_by.get(issue.id, ("", "")) if issue.trashed else ("", "")
+        actor = actor or issue.closed_by
+        by = f"{verb} par @{actor}" if actor else verb
         items.append(
             _item(
-                Kind.RECENT_DONE,
+                Kind.CLOSED,
                 issue.id,
                 issue.title,
                 when,
                 issue.url,
                 issue=issue,
-                detail=join(issue.identifier, by, since(when), issue.state),
-                weight=0,
-                avatar=issue.closed_by_face or issue.assignee_face,
+                detail=join(issue.identifier, by, since(when)),
+                avatar=face or issue.closed_by_face or issue.creator_face or issue.assignee_face,
                 hint=f"{by} le {when:%d/%m à %H:%M}",
             )
         )
@@ -608,25 +340,19 @@ def build_items(
     cfg: Config,
     impersonating: bool = False,
 ) -> list[Item]:
-    items, covered, talked = inbox_items(notes, cfg) if not impersonating else ([], set(), set())
-    # Les conversations d'abord : un ticket dont un message attend une réponse se dit mieux
-    # ainsi qu'en « en cours », donc il ne réapparaît pas plus bas.
-    talk = conversation_items([issue for issue in [*work.mine, *work.created, *work.touched] if issue.open], me, cfg, talked)
-    if cfg.show_done:
-        talk += conversation_items([issue for issue in work.done if not issue.open], me, cfg, talked)
-    items += talk
-    if cfg.show_work:
-        items += work_items(work, me, cfg, covered | {item.id.split(":", 1)[-1] for item in talk})
-    if cfg.show_done:
-        items += done_items(work.done, me, cfg)
-    if not cfg.show_waiting:
-        items = [item for item in items if item.group.is_action]
-    # Deux invariants, un par badge : la somme des pastilles rouges vaut le badge rouge, celle
-    # des secondes le badge secondaire. Une ligne informative ne compte dans aucun des deux.
-    items = [item if item.group.is_action else replace(item, weight=0) for item in items]
+    items: list[Item] = []
+    if not impersonating:
+        items += inbox_items(notes)
+        items += filed_items(notes, cfg)
+    items += mine_items(work)
+    items += closed_items(work, cfg, notes)
+    # Un invariant par badge : le rouge compte les sujets qui portent du non-lu, le violet ceux
+    # qui sont lus sans être rangés. Le reste informe et ne compte nulle part.
+    items = [
+        replace(item, weight=0) if (not item.group.is_action or item.asleep) else item for item in items
+    ]
     rank = {kind: index for index, kind in enumerate(ORDER)}
-    # Le chaud avant le tiède : dans une section, ce qui n'a pas encore été vu passe devant.
-    items.sort(key=lambda item: (rank[item.kind], item.warm, -item.at.timestamp()))
+    items.sort(key=lambda item: (rank[item.kind], -item.at.timestamp()))
     return _dedupe(items)
 
 
@@ -641,12 +367,30 @@ def _dedupe(items: list[Item]) -> list[Item]:
     return unique
 
 
+def count_stale(notes: list[Note]) -> int:
+    """Non-lues que Linear compte encore alors que leur ticket est à la corbeille.
+
+    Son compteur les additionne, sa boîte ne les montre plus : les connaître est ce qui permet
+    de ne pas afficher un « + » qui ne mènerait à rien.
+    """
+    return sum(1 for note in notes if note.unread and note.stale and not note.archived and not note.asleep)
+
+
+def count_unread(notes: list[Note]) -> int:
+    """Non-lues réellement dans la boîte, à l'unité près.
+
+    Le badge, lui, compte des sujets : un ticket qui reçoit trois commentaires vaut un dans la
+    barre et trois ici. C'est ce nombre-là qui se compare au compteur de Linear.
+    """
+    return sum(1 for note in notes if note.unread and not note.archived and not note.stale and not note.asleep)
+
+
 def summarize(items: list[Item]) -> tuple[int, bool]:
-    """Somme des notifications non lues, et présence d'une urgence : c'est le badge rouge."""
+    """Sujets de la boîte qui portent du non-lu, et présence d'une urgence : le badge rouge."""
     actions = [item for item in items if item.group.is_action and not item.warm]
     return sum(item.weight for item in actions), any(item.is_urgent for item in actions)
 
 
 def summarize_warm(items: list[Item]) -> int:
-    """Somme des notifications lues qui traînent encore dans la boîte : le badge secondaire, à la couleur de l'app."""
+    """Sujets lus mais toujours dans la boîte : le badge violet."""
     return sum(item.weight for item in items if item.warm)

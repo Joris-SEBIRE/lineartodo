@@ -46,8 +46,8 @@ FORM: tuple[tuple[str, tuple[tuple[str, str, str, str], ...]], ...] = (
         (
             ("refresh_seconds", "Cycle", "intervalle du cycle, sonde comprise", ""),
             ("full_refresh_seconds", "Lecture complète", "délai maximum entre deux lectures de la boîte", ""),
-            ("work_refresh_seconds", "Mes tickets", "lecture plus lourde, et plus lente à bouger", ""),
-            ("done_refresh_seconds", "Tickets clôturés", "de l'histoire : elle peut attendre", ""),
+            ("mine_refresh_seconds", "Mes tickets", "lecture plus lourde, et plus lente à bouger", ""),
+            ("closed_refresh_seconds", "Tickets clos", "de l'histoire : elle peut attendre", ""),
             ("people_refresh_seconds", "Annuaire", "pour le menu « voir en tant que »", ""),
         ),
     ),
@@ -56,7 +56,6 @@ FORM: tuple[tuple[str, tuple[tuple[str, str, str, str], ...]], ...] = (
         (
             ("teams", "Équipes", "clés d'équipe ; vide pour tout ce que la clé voit", "ENG, OPS"),
             ("view_as", "Voir en tant que", "handle ou e-mail Linear observé ; vide pour toi", "prenom"),
-            ("triage_teams", "Files de triage suivies", "vide pour aucune : c'est du travail d'équipe", "ENG"),
             ("include_backlog", "Inclure le backlog", "sinon seuls triage, à faire et en cours comptent", ""),
         ),
     ),
@@ -65,39 +64,24 @@ FORM: tuple[tuple[str, tuple[tuple[str, str, str, str], ...]], ...] = (
         (
             ("inbox_pages", "Pages au maximum", "garde-fou : on s'arrête dès que les non-lues sont trouvées", ""),
             ("inbox_page_size", "Notifications par page", "50 est le pas servi par Linear", ""),
-            ("show_read", "Section des notifications lues", "l'histoire de la boîte, sous les actions", ""),
-            ("read_days", "Fenêtre des lues", "profondeur de cette histoire", ""),
-            ("read_rows", "Lignes de lues", "nombre affiché, les plus récentes", ""),
         ),
     ),
     (
-        "Mes tickets",
+        "Sections",
         (
-            ("show_work", "Sections déduites de mes tickets", "échéances, blocages, en cours, à démarrer", ""),
-            ("stale_days", "Inactivité tolérée", "au-delà, un ticket en cours est un ticket oublié", ""),
-            ("due_soon_days", "Échéance proche", "à partir de quand une échéance se signale", ""),
-            ("touched_days", "Fenêtre des interventions", "section « où je suis intervenu récemment »", ""),
-            ("touched_rows", "Lignes d'interventions", "", ""),
-            (
-                "ignored_actors",
-                "Comptes ignorés",
-                "leurs messages n'attendent jamais de réponse",
-                "linear, github",
-            ),
+            ("show_filed", "Notifications rangées", "l'histoire de la boîte, sous ce qu'elle contient", ""),
+            ("filed_days", "Fenêtre des rangées", "profondeur de cette histoire", ""),
+            ("filed_rows", "Lignes de rangées", "nombre affiché, les plus récentes", ""),
+            ("show_mine", "Mes tickets", "ce qui m'est assigné et n'est pas clos", ""),
+            ("mine_rows", "Lignes de tickets", "nombre affiché, les plus récemment bougés", ""),
+            ("show_closed", "Mes tickets clos", "l'histoire du travail fini", ""),
+            ("closed_days", "Fenêtre des clos", "profondeur de cette histoire", ""),
+            ("closed_rows", "Lignes de clos", "nombre affiché, les plus récents", ""),
         ),
     ),
     (
-        "Tickets clôturés",
+        "Barre des menus",
         (
-            ("show_done", "Suivi des clôturés", "messages restés sans réponse, et historique", ""),
-            ("done_days", "Fenêtre des clôturés", "profondeur du suivi", ""),
-            ("done_rows", "Lignes d'historique", "nombre de clôtures affichées, les plus récentes", ""),
-        ),
-    ),
-    (
-        "Menu et barre",
-        (
-            ("show_waiting", "Sections « pour information »", "", ""),
             ("badge_style", "Format de l'élément", "du plus large au plus étroit quand la barre est saturée", ""),
             ("hide_when_zero", "Masquer quand la boîte est vide", "", ""),
             (

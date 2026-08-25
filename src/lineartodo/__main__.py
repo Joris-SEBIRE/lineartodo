@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 
 from .config import CONFIG_PATH, Config
-from .engine import build_items, summarize, summarize_warm
+from .engine import build_items, count_stale, summarize, summarize_warm
 from .linear import Linear, LinearError
 from .models import GROUPS, ORDER, Work
 
@@ -40,10 +40,10 @@ def dump(argv: list[str]) -> int:
             notes, _, notes_truncated, unread = client.fetch_inbox(unread)
             truncated += notes_truncated
         work = Work()
-        if cfg.show_work:
+        if cfg.show_mine:
             work, work_truncated = client.fetch_work(target.id if target else None)
             truncated += work_truncated
-        if cfg.show_done:
+        if cfg.show_closed:
             work.done, done_truncated = client.fetch_done(target.id if target else None)
             truncated += done_truncated
     except LinearError as exc:
@@ -59,7 +59,9 @@ def dump(argv: list[str]) -> int:
         f" · lues à traiter {summarize_warm(items)} · {quota}"
     )
     if unread is not None:
-        print(f"Linear annonce {unread} non-lue(s)")
+        orphelines = count_stale(notes)
+        reste = f", dont {orphelines} sur un ticket supprimé" if orphelines else ""
+        print(f"Linear annonce {unread} non-lue(s){reste}")
     print(f"config {CONFIG_PATH}")
     for note in truncated:
         print(f"  ⚠︎ limite atteinte : {note}")

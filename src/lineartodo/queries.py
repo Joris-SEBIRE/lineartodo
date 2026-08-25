@@ -62,22 +62,18 @@ fragment Word on Comment {
 
 TASK = """
 fragment Task on Issue {
-  id identifier title url priority estimate dueDate
+  id identifier title url priority estimate dueDate trashed
   createdAt updatedAt startedAt completedAt canceledAt snoozedUntilAt slaBreachesAt
-  state { name type }
+  state { name type color }
   team { key name }
   assignee { ...Who }
-  creator { displayName }
+  creator { ...Who }
   project { name }
   cycle { number name }
   parent { identifier }
-  relations(first: 6) {
-    nodes { type relatedIssue { identifier title state { type } assignee { displayName } } }
-  }
   inverseRelations(first: 6) {
     nodes { type issue { identifier title state { type } assignee { displayName } } }
   }
-  comments(last: 8) { nodes { ...Word } }
 }
 """
 
@@ -119,8 +115,8 @@ fragment Note on Notification {
   ... on CustomerNeedNotification { relatedIssue { ...Brief } }
 }
 fragment Brief on Issue {
-  id identifier title url priority dueDate updatedAt completedAt canceledAt slaBreachesAt
-  state { name type }
+  id identifier title url priority dueDate updatedAt completedAt canceledAt slaBreachesAt trashed
+  state { name type color }
   team { key name }
   assignee { ...Who }
   project { name }
@@ -131,29 +127,17 @@ fragment Brief on Issue {
     + WORD
 )
 
-# Mes tickets. Quatre recherches dans une requête ; la file de triage n'est demandée que si
-# des équipes sont réglées, sinon elle coûterait pour rien.
+# Mes tickets ouverts. Une seule recherche : ce qui m'est assigné et qui n'est pas clos.
 WORK_QUERY = (
     """
-query Work($mine: IssueFilter!, $created: IssueFilter!, $touched: IssueFilter!,
-           $triage: IssueFilter!, $n: Int!, $wantTriage: Boolean!) {
+query Work($mine: IssueFilter!, $n: Int!) {
   mine: issues(filter: $mine, first: $n, orderBy: updatedAt) {
-    pageInfo { hasNextPage } nodes { ...Task }
-  }
-  created: issues(filter: $created, first: $n, orderBy: updatedAt) {
-    pageInfo { hasNextPage } nodes { ...Task }
-  }
-  touched: issues(filter: $touched, first: $n, orderBy: updatedAt) {
-    pageInfo { hasNextPage } nodes { ...Task }
-  }
-  triage: issues(filter: $triage, first: $n, orderBy: updatedAt) @include(if: $wantTriage) {
     pageInfo { hasNextPage } nodes { ...Task }
   }
 }
 """
     + TASK
     + WHO
-    + WORD
 )
 
 # Tickets sortis du périmètre ouvert. `history` donne la main qui a clôturé : Linear n'expose
@@ -161,28 +145,28 @@ query Work($mine: IssueFilter!, $created: IssueFilter!, $touched: IssueFilter!,
 DONE_QUERY = (
     """
 query Done($done: IssueFilter!, $n: Int!) {
-  done: issues(filter: $done, first: $n, orderBy: updatedAt) {
+  done: issues(filter: $done, first: $n, orderBy: updatedAt, includeArchived: true) {
     pageInfo { hasNextPage }
     nodes {
       ...Ending
-      history(last: 6) { nodes { createdAt actor { ...Who } toState { name type } } }
+      # `history` est trié du plus récent au plus ancien : `first` prend les dernières
+      # transitions, `last` prendrait celles de la création du ticket.
+      history(first: 8) { nodes { createdAt actor { ...Who } botActor { name } toState { name type } } }
     }
   }
 }
 fragment Ending on Issue {
-  id identifier title url priority dueDate
+  id identifier title url priority dueDate trashed
   createdAt updatedAt startedAt completedAt canceledAt
-  state { name type }
+  state { name type color }
   team { key name }
   assignee { ...Who }
-  creator { displayName }
+  creator { ...Who }
   project { name }
   cycle { number name }
-  comments(last: 8) { nodes { ...Word } }
 }
 """
     + WHO
-    + WORD
 )
 
 # Même lecture, sans les champs que Linear marque internes (`title`, `subtitle`, `url`,
@@ -217,8 +201,8 @@ fragment Note on Notification {
   ... on CustomerNeedNotification { relatedIssue { ...Brief } }
 }
 fragment Brief on Issue {
-  id identifier title url priority dueDate updatedAt completedAt canceledAt slaBreachesAt
-  state { name type }
+  id identifier title url priority dueDate updatedAt completedAt canceledAt slaBreachesAt trashed
+  state { name type color }
   team { key name }
   assignee { ...Who }
   project { name }

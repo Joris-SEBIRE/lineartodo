@@ -31,35 +31,10 @@ EPOCH = datetime.fromtimestamp(0, tz=timezone.utc)
 
 
 class Kind(str, Enum):
-    ANSWER = "answer"
-    REPLIES = "replies"
-    MENTION = "mention"
-    ASSIGNED = "assigned"
-    TRIAGE = "triage"
-    ALERT = "alert"
-    PULL_REQUEST = "pull_request"
-    STATUS = "status"
-    REACTION = "reaction"
-    PROJECT_NEWS = "project_news"
-    DOCUMENT = "document"
-    CUSTOMER = "customer"
-    REMINDER = "reminder"
-    UNASSIGNED = "unassigned"
-    OTHER = "other"
-    SNOOZED = "snoozed"
-    PENDING_REPLY = "pending_reply"
-    OVERDUE = "overdue"
-    BLOCKED = "blocked"
-    STALE = "stale"
-    DUE_SOON = "due_soon"
-    BLOCKING = "blocking"
-    IN_PROGRESS = "in_progress"
-    TODO = "todo"
-    TRIAGE_QUEUE = "triage_queue"
-    CREATED_WAITING = "created_waiting"
-    TOUCHED = "touched"
-    READ = "read"
-    RECENT_DONE = "recent_done"
+    INBOX = "inbox"
+    FILED = "filed"
+    MINE = "mine"
+    CLOSED = "closed"
 
 
 @dataclass(frozen=True)
@@ -72,159 +47,68 @@ class Group:
 
 
 GROUPS: dict[Kind, Group] = {
-    Kind.ANSWER: Group(Kind.ANSWER, "On attend ma réponse", "bubble.left.and.bubble.right", True),
-    Kind.REPLIES: Group(Kind.REPLIES, "Réponses et fils clos", "arrowshape.turn.up.left", True),
-    Kind.MENTION: Group(Kind.MENTION, "On m'a nommé", "at", True),
-    Kind.ASSIGNED: Group(Kind.ASSIGNED, "On m'a confié", "person.crop.circle.badge.checkmark", True),
-    Kind.TRIAGE: Group(Kind.TRIAGE, "Arrivées en triage", "tray.and.arrow.down", True),
-    Kind.ALERT: Group(Kind.ALERT, "Alertes", "exclamationmark.octagon", True, True),
-    Kind.PULL_REQUEST: Group(Kind.PULL_REQUEST, "Pull requests", "arrow.triangle.pull", True),
-    Kind.STATUS: Group(Kind.STATUS, "Changements de statut", "arrow.triangle.swap", True),
-    Kind.REACTION: Group(Kind.REACTION, "Réactions", "hand.thumbsup", True),
-    Kind.PROJECT_NEWS: Group(Kind.PROJECT_NEWS, "Projets et updates", "rectangle.stack", True),
-    Kind.DOCUMENT: Group(Kind.DOCUMENT, "Documents", "doc.text", True),
-    Kind.CUSTOMER: Group(Kind.CUSTOMER, "Clients", "person.2", True),
-    Kind.REMINDER: Group(Kind.REMINDER, "Rappels", "bell", True),
-    Kind.UNASSIGNED: Group(Kind.UNASSIGNED, "Retirées de moi", "person.crop.circle.badge.xmark", True),
-    Kind.OTHER: Group(Kind.OTHER, "Autres notifications", "bell.badge", True),
-    Kind.SNOOZED: Group(Kind.SNOOZED, "En sommeil", "moon.zzz", False),
-    Kind.PENDING_REPLY: Group(
-        Kind.PENDING_REPLY, "Messages restés sans réponse", "exclamationmark.bubble", False
-    ),
-    Kind.OVERDUE: Group(Kind.OVERDUE, "Échéance dépassée", "calendar.badge.exclamationmark", False, True),
-    Kind.BLOCKED: Group(Kind.BLOCKED, "Mes tickets bloqués", "hand.raised", False),
-    Kind.STALE: Group(Kind.STALE, "En cours sans activité", "hourglass", False),
-    Kind.DUE_SOON: Group(Kind.DUE_SOON, "Échéances proches", "calendar", False),
-    Kind.BLOCKING: Group(Kind.BLOCKING, "Mes tickets qui en bloquent d'autres", "exclamationmark.triangle", False),
-    Kind.IN_PROGRESS: Group(Kind.IN_PROGRESS, "Mes tickets en cours", "play.circle", False),
-    Kind.TODO: Group(Kind.TODO, "Mes tickets à démarrer", "circle.dashed", False),
-    Kind.TRIAGE_QUEUE: Group(Kind.TRIAGE_QUEUE, "File de triage", "tray.full", False),
-    Kind.CREATED_WAITING: Group(Kind.CREATED_WAITING, "Créés par moi, chez quelqu'un d'autre", "paperplane", False),
-    Kind.TOUCHED: Group(Kind.TOUCHED, "Où je suis intervenu récemment", "clock.arrow.circlepath", False),
-    Kind.READ: Group(Kind.READ, "Historique des notifications", "envelope.open", False),
-    # Histoire, pas travail : en toute fin de menu. Ses lignes comptent malgré tout, dans la
-    # pastille secondaire et non dans la rouge, tant qu'on ne les a pas ouvertes.
-    Kind.RECENT_DONE: Group(Kind.RECENT_DONE, "Mes tickets récemment clôturés", "flag.checkered", False),
+    Kind.INBOX: Group(Kind.INBOX, "Ma boîte de réception", "tray.full", True),
+    Kind.MINE: Group(Kind.MINE, "Tickets qui me sont assignés", "checklist", False),
+    Kind.FILED: Group(Kind.FILED, "Notifications archivées", "archivebox", False),
+    Kind.CLOSED: Group(Kind.CLOSED, "Tickets clos ou supprimés", "flag.checkered", False),
 }
 
-# L'ordre du menu est celui de ce dictionnaire : d'abord la boîte de réception, puis mes
-# tickets, puis l'histoire. Renommer ou déplacer une section se fait ici, et nulle part ailleurs.
+# L'ordre du menu est celui de ce dictionnaire, du plus utile au moins utile : ce qui attend une
+# réponse, le travail en cours, puis les deux histoires — celle de la boîte, celle des tickets.
+# On ne descend dans le menu que pour retrouver quelque chose, jamais pour savoir quoi faire.
 ORDER: list[Kind] = list(GROUPS)
 
-# Nature d'une notification, d'après son `type`. Linear en compte plus de cent : celles qui
-# n'y sont pas tombent dans la table des catégories, puis dans « Autres notifications ». Le
-# total des lignes vaut donc toujours le nombre de non-lues, y compris quand Linear en invente.
-BY_TYPE: dict[str, Kind] = {
-    "issueNewComment": Kind.ANSWER,
-    "documentNewComment": Kind.ANSWER,
-    "projectNewComment": Kind.ANSWER,
-    "projectUpdateNewComment": Kind.ANSWER,
-    "projectMilestoneNewComment": Kind.ANSWER,
-    "initiativeNewComment": Kind.ANSWER,
-    "initiativeUpdateNewComment": Kind.ANSWER,
-    "teamUpdateNewComment": Kind.ANSWER,
-    "pullRequestCommented": Kind.ANSWER,
-    "issueThreadResolved": Kind.REPLIES,
-    "documentThreadResolved": Kind.REPLIES,
-    "projectThreadResolved": Kind.REPLIES,
-    "projectMilestoneThreadResolved": Kind.REPLIES,
-    "initiativeThreadResolved": Kind.REPLIES,
-    "issueMention": Kind.MENTION,
-    "issueCommentMention": Kind.MENTION,
-    "documentMention": Kind.MENTION,
-    "documentCommentMention": Kind.MENTION,
-    "projectMention": Kind.MENTION,
-    "projectCommentMention": Kind.MENTION,
-    "projectMilestoneMention": Kind.MENTION,
-    "projectMilestoneCommentMention": Kind.MENTION,
-    "projectUpdateMention": Kind.MENTION,
-    "projectUpdateCommentMention": Kind.MENTION,
-    "initiativeMention": Kind.MENTION,
-    "initiativeCommentMention": Kind.MENTION,
-    "initiativeUpdateMention": Kind.MENTION,
-    "initiativeUpdateCommentMention": Kind.MENTION,
-    "teamUpdateMention": Kind.MENTION,
-    "teamUpdateCommentMention": Kind.MENTION,
-    "agentConversationMention": Kind.MENTION,
-    "pullRequestMention": Kind.MENTION,
-    "pullRequestCommentMention": Kind.MENTION,
-    "issueAssignedToYou": Kind.ASSIGNED,
-    "projectAddedAsLead": Kind.ASSIGNED,
-    "projectAddedAsMember": Kind.ASSIGNED,
-    "documentAddedAsOwner": Kind.ASSIGNED,
-    "initiativeAddedAsOwner": Kind.ASSIGNED,
-    "customerAddedAsOwner": Kind.ASSIGNED,
-    "issueUnassignedFromYou": Kind.UNASSIGNED,
-    "documentRemovedAsOwner": Kind.UNASSIGNED,
-    "issueAddedToTriage": Kind.TRIAGE,
-    "triageResponsibilityIssueAddedToTriage": Kind.TRIAGE,
-    "issueDue": Kind.ALERT,
-    "issuePriorityUrgent": Kind.ALERT,
-    "issueSlaBreached": Kind.ALERT,
-    "issueSlaHighRisk": Kind.ALERT,
-    "issueBlocking": Kind.ALERT,
-    "pullRequestReviewRequested": Kind.PULL_REQUEST,
-    "pullRequestReviewRerequested": Kind.PULL_REQUEST,
-    "pullRequestApproved": Kind.PULL_REQUEST,
-    "pullRequestChangesRequested": Kind.PULL_REQUEST,
-    "pullRequestChecksFailed": Kind.PULL_REQUEST,
-    "pullRequestRemovedFromMergeQueue": Kind.PULL_REQUEST,
-    "issueStatusChanged": Kind.STATUS,
-    "issueStatusChangedAll": Kind.STATUS,
-    "issueReopened": Kind.STATUS,
-    "issueUnblocked": Kind.STATUS,
-    "issueEmojiReaction": Kind.REACTION,
-    "issueCommentReaction": Kind.REACTION,
-    "documentCommentReaction": Kind.REACTION,
-    "projectCommentReaction": Kind.REACTION,
-    "projectMilestoneCommentReaction": Kind.REACTION,
-    "projectUpdateReaction": Kind.REACTION,
-    "projectUpdateCommentReaction": Kind.REACTION,
-    "initiativeCommentReaction": Kind.REACTION,
-    "initiativeUpdateReaction": Kind.REACTION,
-    "initiativeUpdateCommentReaction": Kind.REACTION,
-    "teamUpdateReaction": Kind.REACTION,
-    "teamUpdateCommentReaction": Kind.REACTION,
-    "projectUpdateCreated": Kind.PROJECT_NEWS,
-    "projectUpdatePrompt": Kind.PROJECT_NEWS,
-    "initiativeUpdateCreated": Kind.PROJECT_NEWS,
-    "initiativeUpdatePrompt": Kind.PROJECT_NEWS,
-    "teamUpdateCreated": Kind.PROJECT_NEWS,
-    "projectDescriptionContentChange": Kind.PROJECT_NEWS,
-    "projectMilestoneDescriptionContentChange": Kind.PROJECT_NEWS,
-    "initiativeDescriptionContentChange": Kind.PROJECT_NEWS,
-    "documentContentChange": Kind.DOCUMENT,
-    "documentMoved": Kind.DOCUMENT,
-    "documentDeleted": Kind.DOCUMENT,
-    "documentRestored": Kind.DOCUMENT,
-    "customerNeedCreated": Kind.CUSTOMER,
-    "customerNeedMarkedAsImportant": Kind.CUSTOMER,
-    "customerNeedResolved": Kind.CUSTOMER,
-    "issueReminder": Kind.REMINDER,
-    "documentReminder": Kind.REMINDER,
-    "projectReminder": Kind.REMINDER,
-    "initiativeReminder": Kind.REMINDER,
+# Nature d'un événement, en français, pour la ligne et son infobulle. Ce qui n'y est pas
+# s'affiche sous son nom Linear : moins beau, jamais faux.
+EVENTS: dict[str, str] = {
+    "issueNewComment": "commentaire",
+    "issueCommentMention": "mention dans un message",
+    "issueMention": "mention",
+    "issueAssignedToYou": "assignation",
+    "issueUnassignedFromYou": "désassignation",
+    "issueStatusChanged": "changement de statut",
+    "issueStatusChangedAll": "changement de statut",
+    "issueReopened": "réouverture",
+    "issueDeleted": "ticket supprimé",
+    "issueEmojiReaction": "réaction",
+    "issueCommentReaction": "réaction",
+    "issueAddedToTriage": "arrivée en triage",
+    "issueThreadResolved": "fil clos",
+    "issueDue": "échéance",
+    "issueSlaBreached": "SLA dépassé",
+    "issueSlaHighRisk": "SLA en danger",
+    "issuePriorityUrgent": "passage en urgent",
+    "issueBlocking": "ticket bloquant",
+    "issueUnblocked": "déblocage",
+    "issueSubscribed": "abonnement",
+    "issueUnsubscribed": "désabonnement",
+    "issueCreated": "création",
+    "issueReminder": "rappel",
+    "projectUpdateCreated": "update de projet",
+    "projectUpdatePrompt": "update de projet à écrire",
+    "projectNewComment": "commentaire de projet",
+    "projectDescriptionContentChange": "description de projet modifiée",
+    "projectAddedAsLead": "projet confié",
+    "projectAddedAsMember": "ajout à un projet",
+    "documentMention": "mention dans un document",
+    "documentNewComment": "commentaire de document",
+    "documentContentChange": "document modifié",
+    "teamUpdateCreated": "update d'équipe",
+    "pullRequestReviewRequested": "review demandée",
+    "pullRequestApproved": "PR approuvée",
+    "pullRequestChangesRequested": "changements demandés",
+    "pullRequestChecksFailed": "CI en échec",
+    "pullRequestCommented": "commentaire de PR",
 }
 
-# Repli par catégorie : Linear la sert sur toutes les notifications, quelle que soit leur
-# nouveauté. Une catégorie inconnue tombe dans « Autres notifications ».
-BY_CATEGORY: dict[str, Kind] = {
-    "mentions": Kind.MENTION,
-    "commentsAndReplies": Kind.ANSWER,
-    "assignments": Kind.ASSIGNED,
-    "triage": Kind.TRIAGE,
-    "statusChanges": Kind.STATUS,
-    "reactions": Kind.REACTION,
-    "reviews": Kind.PULL_REQUEST,
-    "postsAndUpdates": Kind.PROJECT_NEWS,
-    "documentChanges": Kind.DOCUMENT,
-    "customers": Kind.CUSTOMER,
-    "reminders": Kind.REMINDER,
-}
+
+def event_label(kind: str) -> str:
+    return EVENTS.get(kind, kind)
+
 
 # Types d'état Linear, du plus loin au plus proche de la fin.
 OPEN_STATES = ("triage", "backlog", "unstarted", "started")
-CLOSED_STATES = ("completed", "canceled")
+CLOSED_STATES = ("completed", "canceled", "duplicate")
 # Priorité Linear : 0 aucune, 1 urgent, 2 haute, 3 moyenne, 4 basse.
 PRIORITY_LABELS = {1: "urgent", 2: "haute", 3: "moyenne", 4: "basse"}
 
@@ -322,10 +206,13 @@ class Issue:
     team_name: str = ""
     state: str = ""
     state_type: str = ""
+    # Couleur de l'état, telle que Linear la donne : la même pastille que dans son interface.
+    colour: str = ""
     priority: int = 0
     assignee: str = ""
     assignee_face: str = ""
     creator: str = ""
+    creator_face: str = ""
     project: str = ""
     cycle: str = ""
     parent: str = ""
@@ -339,6 +226,9 @@ class Issue:
     sla_at: datetime | None = None
     completed: bool = False
     canceled: bool = False
+    # Ticket mis à la corbeille : Linear le retire de ses listes et de sa boîte de réception,
+    # mais les notifications qui le visaient survivent dans l'API.
+    trashed: bool = False
     comments: tuple[Comment, ...] = ()
     relations: tuple[Relation, ...] = ()
     blocked_by: tuple[Relation, ...] = ()
@@ -395,6 +285,16 @@ class Note:
         return self.read_at is None
 
     @property
+    def stale(self) -> bool:
+        """Le sujet de la notification est parti à la corbeille.
+
+        Linear laisse alors la notification non lue dans son API, tout en la retirant de sa
+        boîte de réception : la compter afficherait un « à faire » que rien ne peut éteindre,
+        et son lien ouvre un ticket supprimé.
+        """
+        return bool(self.issue and self.issue.trashed)
+
+    @property
     def archived(self) -> bool:
         """Rangée : traiter une notification dans l'inbox de Linear l'archive.
 
@@ -412,14 +312,6 @@ class Note:
     def key(self) -> str:
         """Sujet auquel rattacher la ligne : un ticket, sinon l'entité visée."""
         return self.issue.id if self.issue else (self.entity_key or self.id)
-
-    @property
-    def kind(self) -> Kind:
-        found = BY_TYPE.get(self.type)
-        if found is Kind.ANSWER and self.parent_comment_mine:
-            # Une réponse dans un fil que j'ai ouvert : à lire, puis à clore.
-            return Kind.REPLIES
-        return found or BY_CATEGORY.get(self.category) or Kind.OTHER
 
 
 @dataclass(frozen=True)
@@ -451,9 +343,11 @@ class Item:
     tag: str = ""
     # None = l'urgence par défaut de la catégorie.
     urgent: bool | None = None
-    # Notification lue mais toujours dans la boîte : à faire, sans urgence. Elle compte dans
-    # la pastille secondaire, pas dans la rouge, et les deux sommes valent chacune leur badge.
+    # Sujet lu mais toujours dans la boîte : à faire, sans urgence. Il compte dans la pastille
+    # secondaire, pas dans la rouge, et les deux sommes valent chacune leur badge.
     warm: bool = False
+    # Tout ce que le sujet porte est en sommeil : la ligne reste visible, sans compter nulle part.
+    asleep: bool = False
 
     @property
     def group(self) -> Group:
@@ -466,16 +360,13 @@ class Item:
 
 @dataclass
 class Work:
-    """Mes tickets, tels que les recherches les rendent. Vide quand la lecture a échoué."""
+    """Mes tickets, tels que les deux recherches les rendent. Vides si la lecture a échoué."""
 
     mine: list[Issue] = field(default_factory=list)
-    created: list[Issue] = field(default_factory=list)
-    touched: list[Issue] = field(default_factory=list)
     done: list[Issue] = field(default_factory=list)
-    triage: list[Issue] = field(default_factory=list)
 
     def all(self) -> list[Issue]:
-        return [*self.mine, *self.created, *self.touched, *self.done, *self.triage]
+        return [*self.mine, *self.done]
 
 
 @dataclass
@@ -493,6 +384,9 @@ class Snapshot:
     people: tuple[Person, ...] = ()
     # Compte de non-lues annoncé par Linear : la vérité contre laquelle on se mesure.
     unread_total: int | None = None
+    # Non-lues que Linear compte encore mais dont le ticket est à la corbeille : elles
+    # expliquent l'écart entre son compteur et le nôtre.
+    stale: int = 0
 
     @property
     def impersonating(self) -> bool:

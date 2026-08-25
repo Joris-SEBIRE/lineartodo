@@ -46,7 +46,6 @@ from Cocoa import (
 
 from . import IDENTITY_TINT, settings
 from .config import CONFIG_PATH, STATE_PATH, Config
-from .models import GROUPS, ORDER
 
 # Deux volets : le formulaire tient dans une colonne étroite, le texte a besoin de largeur.
 FORM_WIDTH = 380.0
@@ -93,13 +92,11 @@ sinon l'historique serait vide. Linear ne sait pas filtrer sur « non lue » : l
 jusqu'à retrouver le compte de non-lues qu'il annonce, ce qui tient en une page dans le cas \
 normal. Le sens du tri n'étant pas documenté, il est mesuré une fois par lancement plutôt que \
 supposé
-- **Mes tickets** : quatre recherches `issues` dans une requête — ce qui m'est assigné, ce que \
-j'ai créé, ce où j'ai parlé ou que je suis, et la file de triage des équipes réglées. Chaque \
-ticket remonte son état, son échéance, sa priorité, son cycle, ses relations `blocks` dans les \
-deux sens, et ses derniers messages avec leurs réactions
-- **Tickets clôturés** : les mêmes tickets une fois `completed` ou `canceled`, avec leur \
-historique d'états — c'est la seule façon de savoir *qui* a clôturé, Linear n'exposant pas de \
-`completedBy`
+- **Mes tickets** : une recherche `issues` — ce qui m'est assigné et n'est pas clos, avec son \
+état, son échéance, sa priorité, son cycle et les tickets qui le bloquent
+- **Tickets clos** : la même recherche une fois `completed` ou `canceled`, avec l'historique \
+d'états. C'est la seule façon de savoir *qui* a clôturé, Linear n'exposant pas de `completedBy` — \
+et cet historique se lit du plus récent au plus ancien, donc par `first`, pas par `last`
 - **Annuaire** : `users`, pour le menu « voir en tant que », classé par dernière présence
 - **Visages** : la photo de profil quand il y en a une, sinon les initiales sur la couleur que \
 Linear attribue au compte. Cache disque de quatorze jours
@@ -107,10 +104,9 @@ Linear attribue au compte. Cache disque de quatorze jours
 ## Rythme
 
 Linear accorde 2 500 requêtes et 3 000 000 points de complexité par heure et par clé, et l'annonce \
-dans ses en-têtes de réponse. Mesuré sur cette installation : 71 points pour la sonde, ~1 500 pour \
-la lecture complète de la boîte, ~235 pour mes tickets, ~50 pour les clôturés, ~575 pour \
-l'annuaire. Au rythme par défaut, le pire des cas tient autour de 400 requêtes et 300 000 points \
-par heure.
+dans ses en-têtes de réponse. Mesuré sur cette installation : 76 points pour la sonde, ~1 480 pour \
+la lecture complète de la boîte, ~41 pour mes tickets, ~53 pour les clos, ~575 pour l'annuaire. \
+Au rythme par défaut, le pire des cas tient autour de 400 requêtes et 280 000 points par heure.
 
 - toutes les {refresh} s (`refresh_seconds`), une sonde lit le compte de non-lues et \
 l'empreinte des dernières notifications. Empreinte identique, le cycle s'arrête là
@@ -145,61 +141,56 @@ le reste du cycle : la boîte reste affichée, et la dernière lecture connue es
 
 ## Sections
 
-La boîte de réception **est** la liste de ce qu'il reste à faire, et Linear la range en trois \
-états : non lue, c'est chaud ; lue mais toujours dans la boîte, c'est à faire sans urgence ; \
-rangée, c'est fait. Les deux premiers comptent, chacun dans sa pastille — **rouge** pour le \
-chaud, **bleu** pour le tiède — et la somme des lignes d'une section vaut ce qu'elle porte. \
-Les sections suivantes sont déduites de mes tickets : elles informent, elles ne comptent pas.
+Quatre, et rien d'autre. L'app montre l'état de Linear, elle n'en déduit pas une seconde liste \
+de travail à côté.
 
-Une ligne ne mélange jamais les deux chaleurs : un ticket qui a du neuf et du déjà-lu donne deux \
-lignes dans sa section, la chaude devant, parce qu'elles ne demandent pas la même chose.
+- **Ma boîte de réception** : tout ce qui s'y trouve encore, lu ou non, du plus récent au plus \
+ancien. Une ligne par sujet, comme dans Linear
+- **Tickets qui me sont assignés** : ce qui n'est pas clos, du plus récemment bougé au plus \
+dormant. Le visage est celui du créateur — l'assigné, c'est moi, il n'apprend rien
+- **Notifications archivées** : celles qui ont été rangées dans Linear, ou dont le ticket est \
+parti à la corbeille. Même fenêtre de lecture, même tri
+- **Tickets clos ou supprimés** : terminés, annulés, marqués en doublon ou supprimés, et par \
+quelle main
 
-### Boîte de réception
+**Un sujet, une ligne, une unité.** Linear regroupe dans sa boîte tous les événements d'un même \
+ticket : l'app fait pareil, sinon les deux comptes ne se ressemblent plus. Une ligne vaut donc \
+un, et sa pastille porte ce un : les lignes d'une section s'additionnent au nombre de son titre, \
+et les sections au badge de la barre. Deux dans la pastille violette, ce sont deux lignes \
+marquées d'un 1 violet — la somme se vérifie à l'œil, sans rien croire sur parole.
 
-{actions}
+Le nombre d'événements, lui, se lit en pastille grise, et leur nature s'écrit dans les \
+métadonnées : « commentaire, assignation ». Il ne compte dans aucun badge.
 
-### Déduit de mes tickets
-
-{waiting}
+Le tri fait le travail des anciennes sections déduites : un ticket qui n'a pas bougé depuis des \
+semaines tombe de lui-même au bas de « Mes tickets », et ce qui le retient — échéance dépassée, \
+blocage, urgence — porte son étiquette rouge sur sa propre ligne.
 
 ## Règles
 
-- une notification de la boîte compte une fois, dans une seule section, dans la pastille de sa \
-chaleur. Une nature inconnue de l'app tombe dans « Autres notifications » plutôt que de \
-disparaître : le total ne peut pas mentir, même le jour où Linear invente une notification
-- **lire n'est pas traiter** : une notification lue reste dans la boîte, donc à faire, et passe \
-simplement du rouge au bleu. Ce qui l'éteint, c'est de la ranger dans Linear — l'app ne le \
-fait jamais à ta place, elle le lit au cycle suivant
-- plusieurs notifications sur le même ticket tiennent sur une ligne, dont la pastille les \
-compte. Le survol dit lesquelles
-- une notification en sommeil ne compte pas : Linear l'a retirée de la boîte. Elle attend dans \
-« En sommeil », avec l'heure de son réveil
-- ouvrir une ligne ne marque rien comme lu ici : c'est Linear qui le fait quand la page s'ouvre \
-chez lui, et la ligne passe alors du rouge au bleu au cycle suivant. L'app n'écrit jamais
+- la boîte de réception **est** la liste de ce qu'il reste à faire, et Linear la range en trois \
+états : non lue, c'est chaud ; lue mais toujours dans la boîte, c'est à faire sans urgence ; \
+rangée, c'est fait. Les deux premiers comptent, chacun dans sa pastille — **rouge** pour le \
+chaud, **bleu** pour le tiède
+- **lire n'est pas traiter** : une notification lue reste dans la boîte, donc à faire, et son \
+sujet passe simplement du rouge au bleu. Ce qui l'éteint, c'est de la ranger dans Linear — l'app \
+ne le fait jamais à ta place, elle le lit au cycle suivant
+- un sujet qui porte à la fois du lu et du non-lu est rouge : il reste quelque chose à découvrir
 - une notification rangée dans l'inbox de Linear est archivée, pas supprimée : elle quitte les \
 deux comptes et reste dans l'historique, y compris si elle n'a jamais été ouverte
-- **ce que la boîte oublie** : une notification rangée disparaît des comptes, même si la \
-question qu'elle portait n'a jamais eu de réponse. « Messages restés sans réponse » les rattrape \
-en relisant les messages des tickets : un fil dont je ne suis pas le dernier à parler, un message \
-qui me nomme et que j'ai enjambé. Deux bornes gardent la section utile : la fenêtre \
-`pending_days`, parce qu'une question de trois mois que personne n'a relancée n'attend plus rien, \
-et le fait que le ticket soit à moi ou qu'un des messages me nomme
-- un fil clos est un point traité. Une réaction 👍 ou 👎 posée sur un message vaut réponse : un \
-refus est une réponse, et un point acté n'attend plus rien. Pas 👀, qui dit qu'on a vu et non \
-qu'on a tranché
-- répondre dans un fil répond au fil. En bas d'un ticket, la liste est chronologique : reprendre \
-la parole répond à ce qui précède, sauf à un message qui me nomme — celui-là ne s'éteint que par \
-une réponse citée ou une réaction
-- un ticket n'apparaît qu'une fois dans les sections déduites, dans celle qui dit ce qui le \
-retient : échéance dépassée, puis blocage, puis inactivité, puis échéance proche, puis « il en \
-bloque d'autres », puis en cours, puis à démarrer
-- un ticket dont une notification attend déjà ne réapparaît pas plus bas : la notification dit \
-mieux ce qu'on attend
-- un compte suivi d'un `+` est un plancher, pas un total : la liste est écrêtée, ou Linear \
-annonce plus de non-lues que la boîte n'en a servi. Sans `+`, le compte est exact
-- « bloqué » se lit dans les deux sens : le ticket qui me bloque vient des relations inverses, \
-celui que je bloque des relations directes. Une relation « doublon » ou « lié » ne contraint \
-aucun travail, elle est ignorée
+- un ticket parti à la corbeille emporte ses notifications hors des comptes, même celles que \
+Linear laisse non lues : son compteur les additionne encore, sa boîte ne les montre plus, et \
+leur lien n'ouvre plus rien. Elles finissent dans l'historique, marquées « ticket supprimé »
+- un sujet dont tout est en sommeil reste affiché dans la boîte, avec l'heure de son réveil, \
+sans compter dans aucune pastille
+- ouvrir une ligne ne marque rien comme lu ici : c'est Linear qui le fait quand la page s'ouvre \
+chez lui, et la ligne passe alors du rouge au bleu au cycle suivant. L'app n'écrit jamais
+- un compte suivi d'un `+` est un plancher : la liste est écrêtée, ou Linear annonce plus de \
+non-lues que la boîte n'en a servi. Les notifications sur ticket supprimé sont retirées de cette \
+comparaison, sans quoi le `+` ne mènerait à rien
+- le compteur de Linear additionne des notifications, la pastille compte des sujets : trois \
+commentaires sur un même ticket font 3 chez lui et 1 ici, exactement comme sa boîte n'affiche \
+qu'une ligne
 
 ## Une ligne
 
@@ -209,11 +200,20 @@ plus d'une ligne à l'autre. Puis le titre du ticket. Puis des métadonnées con
 identifiant, personne, délai, état, et un extrait du message. Puis l'équipe, le projet et le \
 cycle.
 
-Le délai et les pastilles chiffrées prennent la couleur de la pastille de la ligne — rouge pour \
-ce qui n'a pas été vu, bleu pour ce qui attend d'être traité — et restent gris sur une ligne qui \
-ne compte rien. Les drapeaux d'état, eux, ne comptent rien et gardent leur gris. Le délai est \
-l'information qu'on cherche en premier sur une ligne qui attend ; les pastilles chiffrées disent \
-de quoi son compte est fait.
+Le délai prend la couleur de la pastille de la ligne — rouge pour ce qui n'a pas été vu, bleu \
+pour ce qui attend d'être traité — et reste gris sur une ligne qui ne compte rien. Les pastilles \
+grises, elles, ne comptent jamais : elles disent le nombre d'événements du sujet et l'état du \
+ticket.
+
+Le deuxième renseignement d'une ligne dit toujours à qui appartient le visage : « notifié par » \
+dans la boîte et son histoire, « créé par » dans mes tickets — l'assigné, c'est moi —, « terminé \
+par », « annulé par » ou « supprimé par » dans l'histoire des tickets.
+
+L'état d'un ticket est dessiné comme dans Linear, dans la couleur que Linear lui donne : anneau \
+pointillé pour le backlog, anneau vide pour « à faire », anneau à moitié plein pour ce qui est \
+commencé, disque coché pour ce qui est terminé, disque barré pour ce qui est annulé ou en \
+doublon. Un ticket parti à la corbeille n'a pas d'état d'avancement : il porte une corbeille, \
+dans le gris que Linear donne à ce qui est clos.
 
 L'étiquette rouge dit l'état qui doit sauter aux yeux : `en retard`, `SLA`, `urgent`, `bloqué`.
 
@@ -274,50 +274,6 @@ essai est justement ce qu'on attend. `show_refresh_ring` l'éteint. `badge_style
 des masquages de macOS.
 """
 
-DESCRIPTIONS = {
-    "answer": "un message est arrivé sur un ticket, et personne n'y a répondu à ta place",
-    "replies": "on a répondu dans un fil que tu as ouvert, ou ce fil a été clos",
-    "mention": "on t'a nommé, dans un ticket, un message, un projet ou un document",
-    "assigned": "un ticket t'a été assigné, ou on t'a confié un projet, un document, un client",
-    "triage": "un ticket est arrivé dans une file de triage que tu suis",
-    "alert": "échéance atteinte, SLA en danger ou dépassé, passage en urgent, ticket bloquant ; \
-urgente, elle passe l'icône de la barre en alerte",
-    "pull_request": "l'intégration Git de Linear : review demandée, approuvée, refusée, CI rouge",
-    "status": "l'état d'un ticket que tu suis a changé, il a été rouvert ou débloqué",
-    "reaction": "quelqu'un a réagi à un de tes tickets ou à un de tes messages",
-    "project_news": "un update de projet, d'initiative ou d'équipe, ou une description modifiée",
-    "document": "un document que tu suis a changé, bougé, été supprimé ou restauré",
-    "customer": "un besoin client est arrivé, a été marqué important, ou résolu",
-    "reminder": "un rappel que tu as posé, ou qu'on a posé pour toi",
-    "unassigned": "un ticket t'a été retiré, ou tu n'es plus propriétaire d'un document",
-    "other": "tout le reste, y compris ce que l'app ne sait pas encore nommer : le compte reste juste",
-    "snoozed": "notification remise à plus tard : Linear la cache, elle ne compte dans aucune \
-pastille jusqu'à son réveil",
-    "pending_reply": "des messages que la boîte a rangés n'ont jamais eu ta réponse",
-    "overdue": "ton ticket a dépassé son échéance",
-    "blocked": "un ticket encore ouvert bloque le tien",
-    "stale": "ton ticket est « en cours » mais rien n'y a bougé depuis le délai réglé",
-    "due_soon": "l'échéance de ton ticket arrive dans la fenêtre réglée",
-    "blocking": "ton ticket en bloque un autre, encore ouvert : c'est lui qui commande",
-    "in_progress": "ton ticket est en cours et rien ne le retient",
-    "todo": "ton ticket t'est assigné et n'est pas démarré",
-    "triage_queue": "la file de triage des équipes réglées, ce qui n'a pas encore été trié",
-    "created_waiting": "tu as créé le ticket, il est chez quelqu'un d'autre ou chez personne",
-    "touched": "tu as parlé sur ce ticket, ou tu le suis, et il a bougé récemment",
-    "read": "l'histoire de la boîte : ce qui a été rangé dans Linear, groupé par sujet",
-    "recent_done": "un de tes tickets est sorti du périmètre ouvert, et par la main de qui",
-}
-
-
-def _sections(action: bool) -> str:
-    lines = []
-    for kind in ORDER:
-        group = GROUPS[kind]
-        if group.is_action is action:
-            lines.append(f"- **{group.label}** : {DESCRIPTIONS.get(kind.value, '')}")
-    return "\n".join(lines)
-
-
 def built_at() -> str:
     """Date du code réellement exécuté, pour repérer un bundle installé resté en arrière.
 
@@ -350,10 +306,8 @@ def document(context: dict) -> str:
         built=built_at(),
         refresh=cfg.refresh_seconds,
         full=cfg.full_refresh_seconds,
-        work=cfg.work_refresh_seconds,
-        done=cfg.done_refresh_seconds,
-        actions=_sections(True),
-        waiting=_sections(False),
+        work=cfg.mine_refresh_seconds,
+        done=cfg.closed_refresh_seconds,
     )
 
 

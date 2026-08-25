@@ -3,9 +3,9 @@
 Ce qu'il te reste à faire sur Linear, dans la barre des menus macOS.
 
 Dans la barre : ta photo, et deux comptes qui disent l'état de ta boîte de réception Linear —
-une pastille **rouge** pour ce qui n'a pas encore été vu, une **bleue** pour ce qui a été vu
-et attend toujours d'être traité. Un clic ouvre le détail, regroupé par nature. Un clic sur une
-ligne ouvre le ticket au bon endroit.
+une pastille **rouge** pour les sujets qui n'ont pas encore été vus, une **bleue** pour ceux qui
+l'ont été et attendent toujours d'être traités. Un clic ouvre le détail, une ligne par sujet
+comme dans Linear. Un clic sur une ligne ouvre le ticket au bon endroit.
 
 L'inbox de Linear *est* la liste des choses à faire : non lue, c'est chaud ; lue mais toujours
 dans la boîte, c'est à faire sans urgence ; rangée, c'est fait.
@@ -13,25 +13,21 @@ dans la boîte, c'est à faire sans urgence ; rangée, c'est fait.
 L'app ne fait que lire. Elle n'écrit jamais rien sur Linear.
 
 ```
-  4 (photo) 9        ← 9 non lues à droite, 4 lues à traiter à gauche
+  3 (photo) 5        ← 5 sujets à lire à droite, 3 à traiter à gauche
   ┌────────────────────────────────────────────────────────────────┐
-  │ ✉  ON ATTEND MA RÉPONSE (6)                                    │
+  │ ▣  MA BOÎTE DE RÉCEPTION (5)                                   │
   │      Relancer l'export des factures                            │
-  │      ENG-142 · @alice · depuis 45 min · En cours    ✉ 4        │  ← rouge
+  │      ENG-142 · @alice · depuis 45 min · commentaire, 3 événements│  ← rouge
   │      Revoir le mapping des champs                              │
-  │      ENG-097 · @bob · depuis 2 j · En cours         ✉ 2        │  ← bleu
-  │ @  ON M'A NOMMÉ (1)                                            │
+  │      ENG-097 · @bob · depuis 2 j · changement de statut        │  ← bleu
+  │ ✓  TICKETS QUI ME SONT ASSIGNÉS (12)                            │
   │      Migrer les webhooks                                       │
-  │      en retard  ENG-158 · @carol · depuis 20 min    @ 1        │
-  │ ⚠  ALERTES (3)                                                 │
+  │      en retard  ENG-158 · créé par @carol · ◐ In Progress       │
   │ ────────────────────────────────────────────────────────────── │
-  │ ⌇  MESSAGES RESTÉS SANS RÉPONSE (2)                            │
-  │ ⌛  EN COURS SANS ACTIVITÉ (1)                                 │
-  │ ↻  OÙ JE SUIS INTERVENU RÉCEMMENT · 7 j (6)                    │
-  │ ✉  HISTORIQUE DES NOTIFICATIONS · 7 j (11)                     │
-  │ ⚑  MES TICKETS RÉCEMMENT CLÔTURÉS · 2 sem (4)                  │
+  │ ✉  NOTIFICATIONS ARCHIVÉES · 7 j (14)                           │
+  │ ⚑  TICKETS CLOS OU SUPPRIMÉS · 2 sem (9)                        │
   │ ────────────────────────────────────────────────────────────── │
-  │ ↻  Actualiser  prochaine dans 14 s · 9 non-lue(s), 4 à traiter │
+  │ ↻  Actualiser  prochaine dans 14 s · 5 à lire, 3 à traiter     │
   │ ◉  Voir en tant que ▸                                          │
   │ ⚙  Réglages et mode d'emploi                                   │
   └────────────────────────────────────────────────────────────────┘
@@ -115,50 +111,57 @@ suivants.
 - Lire n'est pas traiter : ouvrir une notification la fait passer du rouge au bleu, elle reste
   à faire. C'est **ranger** la notification dans Linear qui l'éteint — l'app ne le fait jamais à
   ta place, elle le lit au cycle suivant.
-- Une notification rangée rejoint l'**Historique des notifications**, groupé par ticket, qu'elle
-  ait été ouverte ou non.
-- Une notification remise à plus tard par Linear ne compte dans aucune pastille : elle attend
-  dans **En sommeil**, avec l'heure de son réveil.
-- Le délai « depuis X » et les pastilles chiffrées prennent la couleur de la pastille de la
-  ligne : rouge pour ce qui n'a pas encore été vu, bleu pour ce qui attend d'être traité, gris
-  quand la ligne ne compte rien. Les drapeaux d'état restent gris, ils ne comptent rien.
+- Une notification rangée rejoint **Notifications rangées**, groupée par sujet, qu'elle ait été
+  ouverte ou non.
+- Un ticket supprimé emporte ses notifications au même endroit, marquées « ticket supprimé »,
+  même si Linear les laisse non lues dans son compteur : elles ne comptent plus, puisque rien ne
+  pourrait les éteindre.
+- Un sujet remis à plus tard par Linear reste dans la boîte, avec l'heure de son réveil, sans
+  compter dans aucune pastille.
+- Le délai « depuis X » prend la couleur de la pastille de la ligne : rouge pour ce qui n'a pas
+  encore été vu, bleu pour ce qui attend d'être traité, gris quand la ligne ne compte rien. Les
+  pastilles grises — nombre d'événements, état du ticket — ne comptent jamais.
+- L'état d'un ticket est dessiné comme dans Linear, dans la couleur que Linear lui donne : anneau
+  pointillé pour le backlog, anneau vide pour « à faire », anneau à moitié plein pour ce qui est
+  commencé, disque coché pour terminé, disque barré pour annulé ou doublon, corbeille pour
+  supprimé — un ticket à la corbeille n'a pas d'état d'avancement, seulement une fin.
 - Un anneau se remplit autour de la photo, dans le sens horaire, jusqu'au prochain cycle.
-- Dans une section, la ligne chaude passe devant la tiède : un même ticket peut avoir les deux.
+- Chaque section est triée du plus récent au plus ancien : date de notification dans la boîte et
+  son histoire, date de mouvement pour les tickets.
 
 Le menu se met à jour pendant qu'il est ouvert, sans qu'il faille le refermer.
 
 Une seule instance tourne à la fois, garantie par un verrou sur
 `~/Library/Application Support/LinearTodo/lineartodo.lock`.
 
-## Ce que l'app déduit, en plus de la boîte de réception
+## Les quatre sections
 
-La boîte de réception oublie une notification dès qu'elle est rangée, même si la question qu'elle
-portait n'a jamais eu de réponse. Les sections du bas rattrapent ce que la boîte laisse tomber, en
-relisant tes tickets. Elles informent : elles ne comptent dans aucune pastille.
+Dans l'ordre où on les lit, du plus utile au moins utile :
 
-- **Messages restés sans réponse** : un fil où tu n'es pas le dernier à parler, un message qui te
-  nomme et que tu n'as ni cité ni acquitté d'un 👍 — sur des tickets dont la boîte a déjà rangé
-  les notifications.
-- **Échéance dépassée**, **Échéances proches**, **En cours sans activité** : le travail engagé qui
-  dérive.
-- **Mes tickets bloqués** et **Mes tickets qui en bloquent d'autres** : les relations `blocks`,
-  lues dans les deux sens.
-- **Créés par moi, chez quelqu'un d'autre** : ce que tu attends des autres.
-- **Où je suis intervenu récemment** : les tickets où tu as parlé, ou que tu suis, et qui ont
-  bougé.
-- **Mes tickets récemment clôturés** : l'histoire, avec la main qui a clôturé.
-- **File de triage** : facultative, à régler par clé d'équipe.
+1. **Ma boîte de réception** — tout ce qui s'y trouve encore, lu ou non, du plus récent au plus
+   ancien. Une ligne par sujet, comme dans Linear : un ticket qui a reçu trois commentaires et une
+   assignation fait une ligne, pas quatre.
+2. **Tickets qui me sont assignés** — ceux qui ne sont pas clos, du plus récemment bougé au plus
+   dormant. Le visage est celui du **créateur** : l'assigné, c'est toi, il n'apprendrait rien. Ce
+   qui retient un ticket porte son étiquette rouge sur la ligne : `en retard`, `bloqué`, `urgent`,
+   `SLA`.
+3. **Notifications archivées** — celles que tu as rangées dans Linear, et celles dont le ticket
+   est parti à la corbeille.
+4. **Tickets clos ou supprimés** — terminés, annulés, marqués en doublon ou supprimés, et par
+   quelle main.
 
-Un ticket n'apparaît qu'une fois : dans la section qui dit ce qui le retient, et jamais plus bas
-si une notification l'attend déjà.
+Le tri remplace les sections déduites : un ticket qui n'a pas bougé depuis des semaines tombe de
+lui-même au bas de « Mes tickets », sans qu'une section ait à le dire.
 
-## La couleur de l'app
+**Un sujet, une ligne, une unité.** Une ligne vaut un, et sa pastille porte ce un : les lignes
+d'une section s'additionnent au nombre de son titre, et les sections au badge de la barre. Deux
+dans la pastille bleue, ce sont deux lignes marquées d'un 1 bleu — la somme se vérifie à l'œil.
+Le nombre d'événements du sujet se lit à part, en pastille grise, et ne compte nulle part. Le
+compteur de Linear, lui, additionne des notifications : trois commentaires sur un même ticket font
+3 chez lui et 1 ici, exactement comme sa boîte n'affiche qu'une ligne.
 
-LinearTodo est bleu, [GitTodo](https://github.com/Joris-SEBIRE/gittodo) est violet. La couleur porte l'anneau du prochain
-cycle, le compteur animé qui le remplace pendant une lecture, le compte secondaire, les titres de
-section — icône et texte — et les titres de la fenêtre de réglages. Le rouge reste réservé à
-l'urgence, et la section des pannes garde la couleur de son niveau : là, l'alerte passe devant
-l'identité.
+Le deuxième renseignement d'une ligne dit toujours à qui appartient le visage : « notifié par »
+dans la boîte, « créé par » dans tes tickets, « terminé par » ou « supprimé par » dans l'histoire.
 
 ## Réglages
 

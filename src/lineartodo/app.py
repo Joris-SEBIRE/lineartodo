@@ -60,7 +60,7 @@ from . import IDENTITY_TINT, launchagent
 from . import help as manual
 from .avatars import BAR_SIZE, SIZE as AVATAR_SIZE, Avatars
 from .config import CONFIG_PATH, Config
-from .engine import build_items, now, summarize, summarize_warm
+from .engine import build_items, count_stale, now, summarize, summarize_warm
 from .formatting import ago, countdown, join, since, spell, truncate
 from .linear import STATUS_PAGE, Linear, LinearError
 from .models import GROUPS, ORDER, Item, Kind, Person, Snapshot, Work
@@ -342,13 +342,17 @@ def _bar_image(face, red: str, purple: str, level: str, size: float):
     return canvas
 
 
-def _with_count(base, count: str, size: float, tint: str = "systemRedColor"):
+def _with_count(base, count: str | None, size: float, tint: str = "systemRedColor"):
     """Pastille de comptage en débord à droite de l'image, façon badge d'application.
+
+    `None` n'en pose aucune. Sinon elle porte son nombre : c'est lui qui rend le compte
+    vérifiable d'un coup d'œil, des lignes au titre de leur section, et des sections au badge de
+    la barre. Une ligne vaut un sujet, donc un.
 
     En débord plutôt que posée dessus : elle ne cache alors aucun visage, et la largeur
     supplémentaire ne coûte rien à la mise en page du menu.
     """
-    if base is None or not count:
+    if base is None or count is None:
         return base
     pill = _count_pill(count, tint)
     span = pill.size()
@@ -527,7 +531,7 @@ def _row_image(content, size: float = AVATAR_SIZE):
     return _padded(content)
 
 
-def _face(avatars, faces, symbol: str, count: str = "", size: float = AVATAR_SIZE, tint: str = "systemRedColor"):
+def _face(avatars, faces, symbol: str, count: str | None = None, size: float = AVATAR_SIZE, tint: str = "systemRedColor"):
     """Vignette de gauche : les personnes concernées, et le compte de ce qu'elles attendent.
 
     Plusieurs personnes sur une même action donnent une pile décalée, la première à s'être
@@ -537,7 +541,7 @@ def _face(avatars, faces, symbol: str, count: str = "", size: float = AVATAR_SIZ
     if isinstance(faces, str):
         faces = (faces,)
     drawn = [image for image in (avatars.image(face, size) for face in tuple(faces)[:STACK_MAX] if face) if image]
-    base = _stack(drawn, size) or _boxed_symbol(symbol, size, tinted=bool(count))
+    base = _stack(drawn, size) or _boxed_symbol(symbol, size, tinted=count is not None)
     return _padded(_with_count(base, count, size, tint))
 
 
@@ -549,6 +553,88 @@ def _attachment(image, offset: float):
     )
     piece.addAttribute_value_range_(NSBaselineOffsetAttributeName, offset, NSMakeRange(0, piece.length()))
     return piece
+
+
+# Pastilles d'état dessinées à la façon de Linear : un anneau qui se remplit à mesure que le
+# ticket avance, dans la couleur que Linear donne à l'état. Les reproduire plutôt que de piocher
+# un symbole SF est ce qui rend la liste lisible d'un coup d'œil pour qui connaît son interface.
+STATE_MARK = "state:"
+STATE_RING = 1.4
+
+
+def _state_glyph(kind: str, colour: str, size: float = GLYPH_CHIP):
+    """Le rond d'état de Linear : vide, à moitié plein, plein et coché, ou barré.
+
+    La corbeille fait exception : un ticket supprimé n'a pas d'état d'avancement, seulement une
+    fin. Elle garde donc sa forme propre, dans le gris que Linear donne à ce qui est clos, pour
+    rester de la même famille que les autres sans prétendre être une étape.
+    """
+    tint = _hex_colour(colour) or NSColor.secondaryLabelColor()
+    if kind == "trashed":
+        glyph = _symbol("trash", size)
+        return (
+            glyph.imageWithSymbolConfiguration_(
+                NSImageSymbolConfiguration.configurationWithPaletteColors_([tint])
+            )
+            if glyph is not None
+            else None
+        )
+    canvas = NSImage.alloc().initWithSize_(NSMakeSize(size, size))
+    middle = size / 2
+    inset = STATE_RING / 2
+    box = NSMakeRect(inset, inset, size - STATE_RING, size - STATE_RING)
+    canvas.lockFocus()
+    ring = NSBezierPath.bezierPathWithOvalInRect_(box)
+    ring.setLineWidth_(STATE_RING)
+    tint.setStroke()
+    tint.setFill()
+    if kind in ("completed", "canceled", "duplicate"):
+        NSBezierPath.bezierPathWithOvalInRect_(NSMakeRect(0, 0, size, size)).fill()
+        NSColor.whiteColor().setStroke()
+        mark = NSBezierPath.bezierPath()
+        mark.setLineWidth_(1.3)
+        if kind == "completed":
+            mark.moveToPoint_((size * 0.26, middle))
+            mark.lineToPoint_((size * 0.44, size * 0.30))
+            mark.lineToPoint_((size * 0.76, size * 0.68))
+        else:
+            mark.moveToPoint_((size * 0.30, size * 0.30))
+            mark.lineToPoint_((size * 0.70, size * 0.70))
+            mark.moveToPoint_((size * 0.70, size * 0.30))
+            mark.lineToPoint_((size * 0.30, size * 0.70))
+        mark.stroke()
+    else:
+        if kind == "backlog":
+            ring.setLineDash_count_phase_([1.6, 1.4], 2, 0.0)
+        ring.stroke()
+        if kind == "started":
+            # Part remplie : Linear la fait croître avec l'avancement, un demi suffit à dire
+            # « en cours » à cette taille.
+            pie = NSBezierPath.bezierPath()
+            pie.moveToPoint_((middle, middle))
+            pie.appendBezierPathWithArcWithCenter_radius_startAngle_endAngle_(
+                (middle, middle), size * 0.24, 90.0, -90.0
+            )
+            pie.closePath()
+            pie.fill()
+        elif kind == "triage":
+            NSBezierPath.bezierPathWithOvalInRect_(
+                NSMakeRect(middle - size * 0.12, middle - size * 0.12, size * 0.24, size * 0.24)
+            ).fill()
+    canvas.unlockFocus()
+    return canvas
+
+
+def _hex_colour(value: str):
+    """Couleur Linear (`#5e6ad2`) en NSColor, ou rien si la chaîne n'est pas lisible."""
+    raw = (value or "").lstrip("#")
+    if len(raw) != 6:
+        return None
+    try:
+        red, green, blue = (int(raw[index : index + 2], 16) / 255.0 for index in (0, 2, 4))
+    except ValueError:
+        return None
+    return NSColor.colorWithSRGBRed_green_blue_alpha_(red, green, blue, 1.0)
 
 
 def _chip_run(chips, tint: str | None = None):
@@ -565,6 +651,15 @@ def _chip_run(chips, tint: str | None = None):
     accent = getattr(NSColor, tint)() if tint else None
     run = NSMutableAttributedString.alloc().init()
     for name, label in chips:
+        if name.startswith(STATE_MARK):
+            # L'état du ticket garde la couleur que Linear lui donne : elle ne dépend ni de la
+            # ligne ni de l'app.
+            _, kind, colour = name.split(":", 2)
+            run.appendAttributedString_(_attachment(_state_glyph(kind, colour), -1.0))
+            run.appendAttributedString_(
+                _run((f" {label}" if label else "") + "   ", META_FONT, color=grey)
+            )
+            continue
         image = _symbol(name, GLYPH_CHIP)
         if image is None:
             continue
@@ -917,16 +1012,16 @@ class LinearTodoApp(NSObject):
         mtime = self.config_mtime()
         if not mtime or mtime == self.cfg_mtime:
             return
-        before = (self.cfg.view_as, self.cfg.teams, self.cfg.include_backlog, self.cfg.triage_teams)
-        windows = (self.cfg.done_days, self.cfg.touched_days, self.cfg.show_done, self.cfg.show_work)
+        before = (self.cfg.view_as, self.cfg.teams, self.cfg.include_backlog)
+        windows = (self.cfg.closed_days, self.cfg.show_closed, self.cfg.show_mine)
         self.cfg = Config.load()
         self.client.cfg = self.cfg
         self.state.scope = self.cfg.view_as or ""
         self.cfg_mtime = mtime
-        if before != (self.cfg.view_as, self.cfg.teams, self.cfg.include_backlog, self.cfg.triage_teams):
+        if before != (self.cfg.view_as, self.cfg.teams, self.cfg.include_backlog):
             # Le périmètre a changé : ce qui est en mémoire décrit une autre question.
             self.target, self.work, self.work_at, self.done_at, self.signature = None, Work(), None, None, ""
-        elif windows != (self.cfg.done_days, self.cfg.touched_days, self.cfg.show_done, self.cfg.show_work):
+        elif windows != (self.cfg.closed_days, self.cfg.show_closed, self.cfg.show_mine):
             # Le titre des sections annonce la fenêtre réglée : son contenu doit suivre tout de
             # suite, sans attendre la cadence lente.
             self.work_at, self.done_at = None, None
@@ -982,13 +1077,13 @@ class LinearTodoApp(NSObject):
     @objc.python_method
     def read_work(self, target: Person | None) -> Work:
         """Mes tickets, relus sur leur propre cadence. Le dernier résultat sert entre-temps."""
-        if not self.cfg.show_work and not self.cfg.show_done:
+        if not self.cfg.show_mine and not self.cfg.show_closed:
             self.work = Work()
             self.clear_incident("work")
             self.clear_incident("done")
             return self.work
         who = target.id if target else None
-        if self.cfg.show_work and self._due(self.work_at, self.cfg.work_refresh_seconds):
+        if self.cfg.show_mine and self._due(self.work_at, self.cfg.mine_refresh_seconds):
             try:
                 found, truncated = self.client.fetch_work(who)
                 found.done = self.work.done
@@ -998,7 +1093,7 @@ class LinearTodoApp(NSObject):
             except LinearError as exc:
                 log_error(f"mes tickets ignorés : {type(exc).__name__}: {exc}")
                 self.note_incident("work", exc)
-        if self.cfg.show_done and self._due(self.done_at, self.cfg.done_refresh_seconds):
+        if self.cfg.show_closed and self._due(self.done_at, self.cfg.closed_refresh_seconds):
             try:
                 self.work.done, truncated = self.client.fetch_done(who)
                 self.done_at = now()
@@ -1045,8 +1140,8 @@ class LinearTodoApp(NSObject):
         fresh = self.snapshot.fetched_at is not None and not self.snapshot.error
         stale = max(self.cfg.refresh_seconds, self.cfg.full_refresh_seconds)
         overdue = self.last_full is None or (now() - self.last_full).total_seconds() >= stale
-        quiet = not self._due(self.work_at, self.cfg.work_refresh_seconds) and not self._due(
-            self.done_at, self.cfg.done_refresh_seconds
+        quiet = not self._due(self.work_at, self.cfg.mine_refresh_seconds) and not self._due(
+            self.done_at, self.cfg.closed_refresh_seconds
         )
         # Sonde à quelques points : inutile de payer la lecture complète si la boîte n'a pas
         # bougé. Une lecture complète est tout de même forcée régulièrement, car un
@@ -1093,6 +1188,7 @@ class LinearTodoApp(NSObject):
                 truncated=truncated + self.work_truncated + self.done_truncated,
                 people=people,
                 unread_total=self.unread_total,
+                stale=count_stale(self.notes),
             )
         except LinearError as exc:
             snapshot = self._failed(str(exc), exc)
@@ -1121,6 +1217,7 @@ class LinearTodoApp(NSObject):
             error=message,
             people=self.people,
             unread_total=self.unread_total,
+            stale=count_stale(self.notes),
         )
 
     @objc.python_method
@@ -1206,12 +1303,16 @@ class LinearTodoApp(NSObject):
         count, urgent = summarize(lines)
         warm = summarize_warm(lines)
         # Linear peut annoncer plus de non-lues que la boîte n'en a servi : le « + » le dit.
+        # Son compteur inclut les notifications dont le ticket est à la corbeille, que sa propre
+        # boîte ne montre plus : les retirer évite un « + » qui ne mène à rien.
         announced = self.snapshot.unread_total
-        more = bool(self.snapshot.truncated) or (announced is not None and announced > count)
+        attendu = None if announced is None else announced - self.snapshot.stale
+        more = bool(self.snapshot.truncated) or (attendu is not None and attendu > count)
         badge = _capped(count, more) if count else ""
         shown = self.draw_badge(count, urgent, badge)
         who = f" (vu en tant que @{self.snapshot.identity})" if self.snapshot.impersonating else ""
-        parts = [f"{count} non lue(s)" if count else "", f"{warm} lue(s) à traiter" if warm else ""]
+        # Les deux comptes sont des sujets, comme les lignes de la boîte de Linear.
+        parts = [f"{count} à lire" if count else "", f"{warm} à traiter" if warm else ""]
         todo = ", ".join(part for part in parts if part)
         tip = f"LinearTodo — {todo}{who}" if todo else f"LinearTodo — boîte vide{who}"
         if self.snapshot.error:
@@ -1226,9 +1327,10 @@ class LinearTodoApp(NSObject):
                 **shown,
                 "visible": visible,
                 "identite": self.snapshot.identity,
-                "non_lues": count,
+                "a_lire": count,
+                "a_traiter": warm,
                 "non_lues_annoncees": announced,
-                "lues_a_traiter": warm,
+                "notifications_orphelines": self.snapshot.stale,
                 "erreur": self.snapshot.error,
                 "figé": self.is_frozen(),
                 "tickets": len(self.work.mine),
@@ -1438,11 +1540,8 @@ class LinearTodoApp(NSObject):
         titre, sans qu'aucune constante ne soit à mettre à jour ailleurs.
         """
         windows = {
-            Kind.RECENT_DONE: self.cfg.done_days * 86400,
-            Kind.READ: self.cfg.read_days * 86400,
-            Kind.TOUCHED: self.cfg.touched_days * 86400,
-            Kind.DUE_SOON: self.cfg.due_soon_days * 86400,
-            Kind.STALE: self.cfg.stale_days * 86400,
+            Kind.FILED: self.cfg.filed_days * 86400,
+            Kind.CLOSED: self.cfg.closed_days * 86400,
         }
         seconds = windows.get(kind, 0)
         return spell(seconds) if seconds else ""
@@ -1450,9 +1549,9 @@ class LinearTodoApp(NSObject):
     @objc.python_method
     def rows_for(self, kind) -> int:
         limits = {
-            Kind.RECENT_DONE: self.cfg.done_rows,
-            Kind.READ: self.cfg.read_rows,
-            Kind.TOUCHED: self.cfg.touched_rows,
+            Kind.FILED: self.cfg.filed_rows,
+            Kind.MINE: self.cfg.mine_rows,
+            Kind.CLOSED: self.cfg.closed_rows,
         }
         return max(1, limits.get(kind, MAX_ROWS_PER_GROUP))
 
@@ -1487,12 +1586,14 @@ class LinearTodoApp(NSObject):
     @objc.python_method
     def add_row(self, menu, item: Item) -> None:
         self.rows[item.id] = item
-        count = str(item.weight) if item.weight else ""
+        # Le nombre revient sur la pastille : c'est ce qui rend la somme vérifiable à l'œil —
+        # les lignes d'une section s'additionnent à son titre, les sections au badge de la barre.
+        marked = str(item.weight) if item.weight else None
         people = item.faces or (item.avatar,)
         tint = SECOND_TINT if item.warm else "systemRedColor"
-        face = _face(self.avatars, people, item.group.symbol, count, tint=tint)
-        # Les variantes ⌥, ⌘ et ⌃ ne portent pas le compte : ce n'est pas ce qu'elles font.
-        plain = _face(self.avatars, people, item.group.symbol) if count else face
+        face = _face(self.avatars, people, item.group.symbol, marked, tint=tint)
+        # Les variantes ⌥, ⌘ et ⌃ ne portent pas la pastille : ce n'est pas ce qu'elles font.
+        plain = _face(self.avatars, people, item.group.symbol) if marked is not None else face
         row = self.row_item(
             _rich(
                 item.title,
@@ -1501,7 +1602,7 @@ class LinearTodoApp(NSObject):
                 item.chips,
                 item.route,
                 item.tag,
-                tint if count else None,
+                tint if marked is not None else None,
             ),
             "openItem:",
             item.id,
@@ -1582,7 +1683,8 @@ class LinearTodoApp(NSObject):
         quota = f"{self.snapshot.requests_left} requêtes" if self.snapshot.requests_left is not None else ""
         slowed = "rythme réduit, quota bas" if self.interval() > max(5, self.cfg.refresh_seconds) else ""
         frozen = f"⚠︎ figé depuis {countdown(int(self.frozen_for()))}" if self.is_frozen() else ""
-        boite = f"{unread} non-lue(s)" + (f", {warm} à traiter" if warm else "")
+        boite = ", ".join(part for part in (f"{unread} à lire" if unread else "",
+                                           f"{warm} à traiter" if warm else "") if part) or "boîte vide"
         return " · ".join(part for part in (state, boite, quota, slowed, frozen) if part)
 
     @objc.python_method

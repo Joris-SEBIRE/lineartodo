@@ -186,12 +186,20 @@ def _issue(node: dict | None, source: str = "") -> Issue | None:
     faces = {comment.author: comment.author_face for comment in comments if comment.author_face}
     if assignee:
         faces.setdefault(assignee.display_name, assignee.face)
+    # L'historique arrive du plus récent au plus ancien : la première transition vers un état
+    # clos est la bonne. Une clôture faite par une automatisation n'a pas d'auteur humain.
     closed_by, closed_face = "", ""
     for entry in ((node.get("history") or {}).get("nodes") or []):
         target = (entry.get("toState") or {}).get("type") or ""
-        if target in CLOSED_STATES and entry.get("actor"):
+        if target not in CLOSED_STATES:
+            continue
+        if entry.get("actor"):
             closed_by = (entry["actor"].get("displayName") or "").strip()
             closed_face = _face_of(entry["actor"])
+        else:
+            closed_by = (entry.get("botActor") or {}).get("name") or "une automatisation"
+            closed_face = initials_face(closed_by[:2], "#8a8f98")
+        break
     return Issue(
         id=node.get("id") or "",
         identifier=node.get("identifier") or "",
@@ -201,10 +209,12 @@ def _issue(node: dict | None, source: str = "") -> Issue | None:
         team_name=team.get("name") or "",
         state=state.get("name") or "",
         state_type=state.get("type") or "",
+        colour=state.get("color") or "",
         priority=int(node.get("priority") or 0),
         assignee=assignee.display_name if assignee else "",
         assignee_face=assignee.face if assignee else "",
         creator=((node.get("creator") or {}).get("displayName") or ""),
+        creator_face=_face_of(node.get("creator")),
         project=((node.get("project") or {}).get("name") or ""),
         cycle=(f"cycle {int(cycle['number'])}" if cycle.get("number") is not None else ""),
         parent=((node.get("parent") or {}).get("identifier") or ""),
@@ -218,6 +228,7 @@ def _issue(node: dict | None, source: str = "") -> Issue | None:
         sla_at=parse_ts(node.get("slaBreachesAt")),
         completed=bool(node.get("completedAt")),
         canceled=bool(node.get("canceledAt")),
+        trashed=bool(node.get("trashed")),
         comments=comments,
         relations=relations,
         blocked_by=blocked_by,
@@ -287,49 +298,26 @@ def _scoped(cfg: Config, base: dict) -> dict:
 
 
 def work_variables(cfg: Config, user_id: str | None, rows: int = 40) -> dict:
-    """Les quatre recherches de tickets, périmètre et personne observée compris.
-
-    « Où je suis intervenu » prend la parole et l'abonnement, mais seulement sur des tickets
-    encore ouverts : un ticket clôturé relève de l'histoire, pas du suivi. Ce que la section
-    montre au bout du compte est le reste — ce dont je suis partie sans que ce soit déjà sur
-    ma pile.
-    """
-    who = who_filter(user_id)
+    """La recherche de mes tickets ouverts : assignés à moi, pas encore clos."""
     states = list(OPEN_STATES) if cfg.include_backlog else [state for state in OPEN_STATES if state != "backlog"]
-    triage_keys = cfg.triage_keys()
     return {
         "n": max(5, min(rows, 100)),
-        "mine": _scoped(cfg, {"assignee": who, "state": {"type": {"in": states}}}),
-        "created": _scoped(cfg, {"creator": who, "state": {"type": {"in": states}}}),
-        "touched": _scoped(
-            cfg,
-            {
-                "and": [
-                    {"or": [{"comments": {"some": {"user": who}}}, {"subscribers": {"some": who}}]},
-                    {"state": {"type": {"in": states}}},
-                    {"updatedAt": {"gt": _iso(cfg.touched_days)}},
-                ]
-            },
-        ),
-        "triage": {"team": {"key": {"in": triage_keys}}, "state": {"type": {"eq": "triage"}}},
-        "wantTriage": bool(triage_keys),
+        "mine": _scoped(cfg, {"assignee": who_filter(user_id), "state": {"type": {"in": states}}}),
     }
 
 
 def done_variables(cfg: Config, user_id: str | None) -> dict:
-    """Les tickets sortis du périmètre ouvert : les miens, et ceux que j'ai ouverts."""
-    who = who_filter(user_id)
+    """Les tickets sortis de ma liste : clos, annulés, doublons, ou partis à la corbeille.
+
+    Aucune clause d'état ici : un ticket supprimé garde celui qu'il avait, et `IssueFilter` ne
+    sait pas filtrer la corbeille. On demande donc mes tickets récemment bougés, archives
+    comprises, et c'est la lecture qui garde ce qui n'est plus ouvert.
+    """
     return {
-        "n": max(5, min(cfg.done_rows * 3, 50)),
+        "n": max(10, min(cfg.closed_rows * 4, 100)),
         "done": _scoped(
             cfg,
-            {
-                "and": [
-                    {"or": [{"assignee": who}, {"creator": who}]},
-                    {"state": {"type": {"in": list(CLOSED_STATES)}}},
-                    {"updatedAt": {"gt": _iso(cfg.done_days)}},
-                ]
-            },
+            {"assignee": who_filter(user_id), "updatedAt": {"gt": _iso(cfg.closed_days)}},
         ),
     }
 
@@ -520,7 +508,7 @@ class Linear:
             more = bool(page_info.get("hasPreviousPage" if backward else "hasNextPage"))
             cursor = page_info.get("startCursor" if backward else "endCursor")
             unread = sum(1 for note in notes if note.unread and not note.archived)
-            enough_read = sum(1 for note in notes if note.archived or not note.unread) >= self.cfg.read_rows
+            enough_read = sum(1 for note in notes if note.archived or not note.unread) >= self.cfg.filed_rows
             if not more or (wanted is not None and unread >= wanted and enough_read):
                 break
         unread = sum(1 for note in notes if note.unread and not note.archived)
@@ -531,24 +519,24 @@ class Linear:
         return notes, viewer, truncated, wanted
 
     def fetch_work(self, user_id: str | None, rows: int = 40) -> tuple[Work, list[str]]:
-        """Mes tickets : ce qui m'est assigné, ce que j'ai créé, ce où je suis intervenu."""
-        variables = work_variables(self.cfg, user_id, rows)
+        """Mes tickets ouverts."""
+        variables = work_variables(self.cfg, user_id, max(rows, self.cfg.mine_rows))
         data = self.graphql(WORK_QUERY, variables, "mes tickets")
-        work, truncated = Work(), []
-        for source, target in (("mine", "mine"), ("created", "created"), ("touched", "touched"), ("triage", "triage")):
-            block = data.get(source) or {}
-            found = [issue for issue in (_issue(node, source) for node in (block.get("nodes") or [])) if issue]
-            getattr(work, target).extend(found)
-            if (block.get("pageInfo") or {}).get("hasNextPage"):
-                truncated.append(f"{source} : plus de {len(found)} tickets, la liste est écrêtée")
-        return work, truncated
+        block = data.get("mine") or {}
+        found = [issue for issue in (_issue(node, "mine") for node in (block.get("nodes") or [])) if issue]
+        truncated = ["mes tickets : la liste est écrêtée"] if (block.get("pageInfo") or {}).get("hasNextPage") else []
+        return Work(mine=found), truncated
 
     def fetch_done(self, user_id: str | None) -> tuple[list[Issue], list[str]]:
-        """Tickets sortis du périmètre ouvert, et ce qui s'y dit encore."""
+        """Mes tickets clos, avec l'historique d'états qui dit par quelle main."""
         variables = done_variables(self.cfg, user_id)
         data = self.graphql(DONE_QUERY, variables, "tickets clôturés")
         block = data.get("done") or {}
-        found = [issue for issue in (_issue(node, "done") for node in (block.get("nodes") or [])) if issue]
+        found = [
+            issue
+            for issue in (_issue(node, "done") for node in (block.get("nodes") or []))
+            if issue and (not issue.open or issue.trashed)
+        ]
         truncated = []
         if (block.get("pageInfo") or {}).get("hasNextPage"):
             truncated.append("clôturés : la fenêtre en contient plus que la liste")
