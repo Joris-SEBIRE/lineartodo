@@ -21,7 +21,7 @@ DEFAULT_IGNORED = ["linear", "github", "gitlab", "sentry", "slack", "zapier", "i
 
 @dataclass
 class Config:
-    # Clés d'équipe auxquelles se restreindre (« SPA », « OPS »). [] = tout ce que la clé voit,
+    # Clés d'équipe auxquelles se restreindre (« ENG », « OPS »). [] = tout ce que la clé voit,
     # ce qui est le cas normal : une boîte de réception n'a pas de périmètre.
     teams: list[str] = field(default_factory=list)
     # Personne observée : son `displayName` ou son e-mail Linear. null pour soi-même.

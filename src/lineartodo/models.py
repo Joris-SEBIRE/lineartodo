@@ -302,7 +302,7 @@ class Relation:
     """Lien entre deux tickets. `blocks` est le seul qui porte une contrainte de travail."""
 
     type: str
-    other: str  # identifiant lisible, « SPA-1234 »
+    other: str  # identifiant lisible, « ENG-142 »
     title: str
     state: str  # type d'état de l'autre ticket
     assignee: str = ""
@@ -432,7 +432,7 @@ class Item:
     at: datetime
     fingerprint: str
     team: str = ""
-    # Identifiant lisible du ticket (« SPA-7853 »), pour la variante « copier l'identifiant ».
+    # Identifiant lisible du ticket (« ENG-142 »), pour la variante « copier l'identifiant ».
     ident: str = ""
     # Visage de la personne concernée par la ligne (auteur du message, ou assigné du ticket).
     avatar: str = ""

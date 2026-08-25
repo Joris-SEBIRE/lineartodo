@@ -54,9 +54,9 @@ FORM: tuple[tuple[str, tuple[tuple[str, str, str, str], ...]], ...] = (
     (
         "Périmètre",
         (
-            ("teams", "Équipes", "clés d'équipe ; vide pour tout ce que la clé voit", "SPA, OPS"),
+            ("teams", "Équipes", "clés d'équipe ; vide pour tout ce que la clé voit", "ENG, OPS"),
             ("view_as", "Voir en tant que", "handle ou e-mail Linear observé ; vide pour toi", "prenom"),
-            ("triage_teams", "Files de triage suivies", "vide pour aucune : c'est du travail d'équipe", "SPA"),
+            ("triage_teams", "Files de triage suivies", "vide pour aucune : c'est du travail d'équipe", "ENG"),
             ("include_backlog", "Inclure le backlog", "sinon seuls triage, à faire et en cours comptent", ""),
         ),
     ),

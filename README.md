@@ -14,30 +14,30 @@ L'app ne fait que lire. Elle n'écrit jamais rien sur Linear.
 
 ```
   4 (photo) 9        ← 9 non lues à droite, 4 lues à traiter à gauche
-  ┌──────────────────────────────────────────────────────────────┐
-  │ ✉  ON ATTEND MA RÉPONSE (6)                                  │
-  │      Corriger le push de stock Shopify                       │
-  │      SPA-100 · @alice · depuis 45 min · En cours   ✉ 4       │  ← rouge
-  │      Revoir le mapping metafields                            │
-  │      SPA-105 · @bob · depuis 2 j · En cours       ✉ 2       │  ← bleu
-  │ @  ON M'A NOMMÉ (1)                                          │
-  │      Migrer les webhooks                                     │
-  │      en retard  SPA-101 · @carol · depuis 20 min    @ 1      │
-  │ ⚠  ALERTES (3)                                               │
-  │ ──────────────────────────────────────────────────────────── │
-  │ ⌇  MESSAGES RESTÉS SANS RÉPONSE (2)                          │
-  │ ⌛  EN COURS SANS ACTIVITÉ (1)                                │
-  │ ↻  OÙ JE SUIS INTERVENU RÉCEMMENT · 7 j (6)                  │
-  │ ✉  HISTORIQUE DES NOTIFICATIONS · 7 j (11)                   │
-  │ ⚑  MES TICKETS RÉCEMMENT CLÔTURÉS · 2 sem (4)                │
-  │ ──────────────────────────────────────────────────────────── │
-  │ ↻  Actualiser  prochaine dans 14 s · 9 non-lue(s), 4 à traiter│
-  │ ◉  Voir en tant que ▸                                        │
-  │ ⚙  Réglages et mode d'emploi                                 │
-  └──────────────────────────────────────────────────────────────┘
+  ┌────────────────────────────────────────────────────────────────┐
+  │ ✉  ON ATTEND MA RÉPONSE (6)                                    │
+  │      Relancer l'export des factures                            │
+  │      ENG-142 · @alice · depuis 45 min · En cours    ✉ 4        │  ← rouge
+  │      Revoir le mapping des champs                              │
+  │      ENG-097 · @bob · depuis 2 j · En cours         ✉ 2        │  ← bleu
+  │ @  ON M'A NOMMÉ (1)                                            │
+  │      Migrer les webhooks                                       │
+  │      en retard  ENG-158 · @carol · depuis 20 min    @ 1        │
+  │ ⚠  ALERTES (3)                                                 │
+  │ ────────────────────────────────────────────────────────────── │
+  │ ⌇  MESSAGES RESTÉS SANS RÉPONSE (2)                            │
+  │ ⌛  EN COURS SANS ACTIVITÉ (1)                                 │
+  │ ↻  OÙ JE SUIS INTERVENU RÉCEMMENT · 7 j (6)                    │
+  │ ✉  HISTORIQUE DES NOTIFICATIONS · 7 j (11)                     │
+  │ ⚑  MES TICKETS RÉCEMMENT CLÔTURÉS · 2 sem (4)                  │
+  │ ────────────────────────────────────────────────────────────── │
+  │ ↻  Actualiser  prochaine dans 14 s · 9 non-lue(s), 4 à traiter │
+  │ ◉  Voir en tant que ▸                                          │
+  │ ⚙  Réglages et mode d'emploi                                   │
+  └────────────────────────────────────────────────────────────────┘
 ```
 
-C'est le pendant de [GitTodo](../gittodo) : même structure, même vocabulaire, même façon de
+C'est le pendant de [GitTodo](https://github.com/Joris-SEBIRE/gittodo) : même structure, même vocabulaire, même façon de
 compter. Les deux icônes cohabitent dans la barre.
 
 ## Prérequis
@@ -57,8 +57,9 @@ autre interpréteur, passe le chemin : `make install PYTHON=/usr/local/bin/pytho
 ## Installation
 
 ```bash
-# 1. la clé, dans le trousseau macOS
-security add-generic-password -a "$USER" -s lineartodo -w 'lin_api_…'
+# 1. la clé, dans le trousseau macOS. Sans valeur après -w, `security` la demande
+#    et la confirme sans l'écrire dans l'historique du shell.
+security add-generic-password -a "$USER" -s lineartodo -w
 
 # 2. l'app
 make install
@@ -92,7 +93,9 @@ trouvée :
 - la variable d'environnement `LINEAR_API_KEY`, sinon `LINEAR_TOKEN`.
 
 La clé porte tes droits, ni plus ni moins : un ticket d'une équipe privée que tu ne vois pas
-n'existe pas pour l'app.
+n'existe pas pour l'app. Attention quand même, une clé personnelle Linear vaut ton compte : elle
+donne aussi le droit d'écrire, que cette app n'utilise pas. Garde-la comme un mot de passe, et
+révoque-la depuis la même page si elle a traîné ailleurs.
 
 Au premier accès au trousseau, macOS demande l'autorisation pour `/usr/bin/security`, l'outil
 d'Apple par lequel passe la lecture. « Toujours autoriser » évite la question aux lancements
@@ -103,7 +106,7 @@ suivants.
 - Clic sur une ligne : ouvre le ticket, le message ou le projet dans Linear.
 - **⌥** maintenu : la ligne devient « Masquer », et l'élément disparaît jusqu'à sa prochaine
   activité. Le masquage est local, rien n'est écrit sur Linear.
-- **⌘** maintenu : « Copier le lien ». **⌃** maintenu : « Copier l'identifiant » (`SPA-7853`), de
+- **⌘** maintenu : « Copier le lien ». **⌃** maintenu : « Copier l'identifiant » (`ENG-142`), de
   quoi nommer une branche.
 - **⌘R** : actualise tout de suite.
 - Le point ● marque ce qui est arrivé depuis la dernière ouverture du menu.
@@ -151,7 +154,7 @@ si une notification l'attend déjà.
 
 ## La couleur de l'app
 
-LinearTodo est bleu, [GitTodo](../gittodo) est violet. La couleur porte l'anneau du prochain
+LinearTodo est bleu, [GitTodo](https://github.com/Joris-SEBIRE/gittodo) est violet. La couleur porte l'anneau du prochain
 cycle, le compteur animé qui le remplace pendant une lecture, le compte secondaire, les titres de
 section — icône et texte — et les titres de la fenêtre de réglages. Le rouge reste réservé à
 l'urgence, et la section des pannes garde la couleur de son niveau : là, l'alerte passe devant
@@ -240,6 +243,11 @@ lignes à afficher, ce qui permet de le vérifier avec `make print`.
 Version 1.0.0. Interface en français uniquement. Le bundle n'est ni signé ni notarisé : il est
 construit sur ta machine, donc macOS ne le met pas en quarantaine, mais il ne se distribue pas tel
 quel.
+
+## Marques
+
+Projet personnel, sans aucun lien avec l'éditeur de Linear ni son approbation. « Linear » et son
+logo appartiennent à leur propriétaire ; ce dépôt n'utilise que son API publique, en lecture.
 
 ## Licence
 
