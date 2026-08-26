@@ -235,35 +235,46 @@ def _chrome_symbol(name: str, tint: str = ""):
     des pannes prend celle de son niveau. Ces lignes ne sont jamais survolées, rien ne viendra
     donc contredire leur couleur.
     """
-    if (name, tint) not in _CHROME:
+    # Une teinte est cuite dans les pixels : sans l'apparence dans la clé, un passage
+    # clair/sombre garderait l'ancienne couleur jusqu'au redémarrage. Sans teinte l'image reste
+    # un gabarit, qu'AppKit reteint lui-même : la même dans les deux apparences.
+    skin = str(NSApplication.sharedApplication().effectiveAppearance().name()) if tint else ""
+    key = (name, tint, skin)
+    if key not in _CHROME:
         symbol = NSImage.imageWithSystemSymbolName_accessibilityDescription_(name, None)
         if symbol is None:
             return None
-        thin = symbol.imageWithSymbolConfiguration_(
-            NSImageSymbolConfiguration.configurationWithPointSize_weight_scale_(
-                CHROME_GLYPH, NSFontWeightLight, NSImageSymbolScaleSmall
+        canvas = None
+
+        def paint() -> None:
+            nonlocal canvas
+            thin = symbol.imageWithSymbolConfiguration_(
+                NSImageSymbolConfiguration.configurationWithPointSize_weight_scale_(
+                    CHROME_GLYPH, NSFontWeightLight, NSImageSymbolScaleSmall
+                )
             )
-        )
-        if tint:
-            thin = thin.imageWithSymbolConfiguration_(
-                NSImageSymbolConfiguration.configurationWithPaletteColors_([getattr(NSColor, tint)()])
+            if tint:
+                thin = thin.imageWithSymbolConfiguration_(
+                    NSImageSymbolConfiguration.configurationWithPaletteColors_([getattr(NSColor, tint)()])
+                )
+            span = thin.size()
+            # Image plus haute que le glyphe, glyphe dessiné vers le haut : centrer cette image
+            # revient à remonter le glyphe de CHROME_LIFT.
+            canvas = NSImage.alloc().initWithSize_(NSMakeSize(span.width + LEFT_MARGIN, span.height + 2 * CHROME_LIFT))
+            canvas.lockFocus()
+            thin.drawInRect_fromRect_operation_fraction_(
+                NSMakeRect(LEFT_MARGIN, 2 * CHROME_LIFT, span.width, span.height),
+                NSZeroRect,
+                NSCompositingOperationSourceOver,
+                1.0,
             )
-        span = thin.size()
-        # Image plus haute que le glyphe, glyphe dessiné vers le haut : centrer cette image
-        # revient à remonter le glyphe de CHROME_LIFT.
-        canvas = NSImage.alloc().initWithSize_(NSMakeSize(span.width + LEFT_MARGIN, span.height + 2 * CHROME_LIFT))
-        canvas.lockFocus()
-        thin.drawInRect_fromRect_operation_fraction_(
-            NSMakeRect(LEFT_MARGIN, 2 * CHROME_LIFT, span.width, span.height),
-            NSZeroRect,
-            NSCompositingOperationSourceOver,
-            1.0,
-        )
-        canvas.unlockFocus()
+            canvas.unlockFocus()
+
+        NSApplication.sharedApplication().effectiveAppearance().performAsCurrentDrawingAppearance_(paint)
         # Un gabarit se laisse teinter par AppKit ; une image déjà peinte doit garder sa couleur.
         canvas.setTemplate_(not tint)
-        _CHROME[(name, tint)] = canvas
-    return _CHROME[(name, tint)]
+        _CHROME[key] = canvas
+    return _CHROME[key]
 
 
 _LABELS: dict[tuple, object] = {}
@@ -278,19 +289,27 @@ def _filled_label(
     d'un coup d'œil dans une liste. Une seule primitive pour l'étiquette de texte et pour la
     pastille de comptage, à la géométrie près.
     """
-    key = (text, height, radius, padding, font, tint)
+    # La couleur de fond est une couleur système : elle se résout sous l'apparence courante et
+    # se retrouve cuite dans les pixels. Sans l'apparence dans la clé, un passage clair/sombre
+    # garderait l'ancienne teinte jusqu'au redémarrage.
+    skin = str(NSApplication.sharedApplication().effectiveAppearance().name())
+    key = (text, height, radius, padding, font, tint, skin)
     if key not in _LABELS:
         glyph = _run(text, font, color=NSColor.whiteColor(), weight=NSFontWeightSemibold)
         measured = glyph.size()
         width = max(height, measured.width + padding)
         canvas = NSImage.alloc().initWithSize_(NSMakeSize(width, height))
-        canvas.lockFocus()
-        getattr(NSColor, tint)().setFill()
-        NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-            NSMakeRect(0, 0, width, height), radius, radius
-        ).fill()
-        glyph.drawAtPoint_(((width - measured.width) / 2, (height - measured.height) / 2))
-        canvas.unlockFocus()
+
+        def paint() -> None:
+            canvas.lockFocus()
+            getattr(NSColor, tint)().setFill()
+            NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                NSMakeRect(0, 0, width, height), radius, radius
+            ).fill()
+            glyph.drawAtPoint_(((width - measured.width) / 2, (height - measured.height) / 2))
+            canvas.unlockFocus()
+
+        NSApplication.sharedApplication().effectiveAppearance().performAsCurrentDrawingAppearance_(paint)
         _LABELS[key] = canvas
     return _LABELS[key]
 
@@ -827,6 +846,12 @@ class LinearTodoApp(NSObject):
         self.work_cache: dict[str, tuple[Work, object]] = {}
         # Sources actuellement dégradées : le triangle et sa section en vivent.
         self.health: dict[str, dict] = {}
+        self.bar_shown = (0, False, "", 0)
+        # Date du cycle en cours : un cycle déclaré bloqué est abandonné, mais son fil
+        # continue de tourner. Sans cette date, sa réponse tardive écraserait le cycle
+        # qui a pris sa suite.
+        self.fetch_epoch = 0
+        self.fetch_local = threading.local()
         self.fetch_started = None
         self.shown_step = -1
         return self
@@ -853,6 +878,9 @@ class LinearTodoApp(NSObject):
         # Garde-fou : un cycle qui ne rend jamais la main bloquerait tous les suivants.
         if self.fetching and self.fetch_started and (now() - self.fetch_started).total_seconds() > STUCK_AFTER:
             log_error("cycle bloqué au-delà du délai : drapeau relâché de force")
+            # Le fil est abandonné, pas tué : on change de date pour que sa réponse tardive
+            # soit ignorée au lieu d'écraser le cycle qui prend sa suite.
+            self.fetch_epoch += 1
             self.fetching = False
         if self.menu_open:
             # Menu ouvert : on le reconstruit dès que son contenu change, pour ne pas obliger à
@@ -873,28 +901,36 @@ class LinearTodoApp(NSObject):
     def note_incident(self, source: str, trouble, kind: str = "") -> None:
         """Retient qu'une source ne répond pas, en gardant la date du premier échec."""
         known = self.health.get(source)
-        self.health[source] = {
+        entry = {
             "status": getattr(trouble, "status", None),
             "kind": kind or getattr(trouble, "kind", "erreur"),
             "message": str(trouble),
             "since": known["since"] if known else now(),
         }
+        # Remplacement du dictionnaire entier, jamais modification sur place : il est écrit
+        # par le fil de fond pendant que la boucle d'événements dessine le menu. Un rebind est
+        # indivisible ; une mutation fait lever « dictionary changed size » en plein parcours,
+        # et le menu se retrouve tronqué.
+        self.health = {**self.health, source: entry}
 
     @objc.python_method
     def clear_incident(self, source: str) -> None:
-        self.health.pop(source, None)
+        if source not in self.health:
+            return
+        self.health = {name: t for name, t in self.health.items() if name != source}
 
     @objc.python_method
-    def level(self) -> str:
+    def level(self, health: dict | None = None) -> str:
         """Niveau de gravité : la boîte de réception d'abord, le reste ensuite.
 
         Un quota épuisé ou un refus de droits ne sont pas des pannes de Linear : les données
         sont figées, mais rien n'est cassé en face. La panne de la source principale, elle,
         arrête tout.
         """
-        if not self.health:
+        health = self.health if health is None else health
+        if not health:
             return ""
-        broken = {name for name, trouble in self.health.items() if trouble["kind"] in ("panne", "réseau")}
+        broken = {name for name, trouble in health.items() if trouble["kind"] in ("panne", "réseau")}
         if "inbox" in broken:
             return "critique"
         if broken:
@@ -951,13 +987,14 @@ class LinearTodoApp(NSObject):
             return
         self.fetching = True
         self.fetch_started = now()
+        self.fetch_epoch += 1
         # Animation quand l'utilisateur attend un contenu : démarrage, bascule d'identité,
         # actualisation manuelle. Pas sur le rafraîchissement automatique, qui ne doit pas
         # faire clignoter la barre toutes les vingt secondes.
         if spinner or self.snapshot.fetched_at is None:
             self.start_spinner()
         self.render()
-        threading.Thread(target=self._fetch_worker, daemon=True).start()
+        threading.Thread(target=self._fetch_worker, args=(self.fetch_epoch,), daemon=True).start()
 
     @objc.python_method
     def loading(self) -> bool:
@@ -1027,19 +1064,36 @@ class LinearTodoApp(NSObject):
             self.work_at, self.done_at = None, None
 
     @objc.python_method
-    def _fetch_worker(self) -> None:
+    def _fetch_worker(self, epoch: int) -> None:
         """Enveloppe du cycle : le drapeau « en cours » doit retomber quoi qu'il arrive.
 
         Sans ce `finally`, une exception inattendue laisse l'app figée pour de bon : plus aucun
         cycle ne repart, et l'affichage reste crédible tout en étant périmé.
         """
+        self.fetch_local.epoch = epoch
         try:
             self._fetch_once()
         except Exception as exc:
             log_error(f"cycle interrompu : {type(exc).__name__}: {exc}\n{traceback.format_exc()}")
-            AppHelper.callAfter(self.apply_snapshot, self._failed(f"{type(exc).__name__}: {exc}"))
+            self.land(self.apply_snapshot, self._failed(f"{type(exc).__name__}: {exc}"))
         finally:
-            AppHelper.callAfter(self.release_fetch)
+            self.land(self.release_fetch)
+
+    @objc.python_method
+    def land(self, apply, *args) -> None:
+        """Fait remonter le résultat d'un cycle, refusé s'il n'est plus le cycle en cours.
+
+        Le garde-fou anti-blocage relâche le drapeau sans pouvoir tuer le fil parti : celui-ci
+        finit par répondre, longtemps après, et son instantané périmé écraserait le frais en se
+        parant d'une date neuve.
+        """
+        epoch = getattr(self.fetch_local, "epoch", 0)
+
+        def deliver() -> None:
+            if epoch == self.fetch_epoch:
+                apply(*args)
+
+        AppHelper.callAfter(deliver)
 
     @objc.python_method
     def release_fetch(self) -> None:
@@ -1150,11 +1204,11 @@ class LinearTodoApp(NSObject):
             try:
                 signature, unread = self.client.probe()
             except LinearError as exc:
-                AppHelper.callAfter(self.apply_snapshot, self._failed(str(exc), exc))
+                self.land(self.apply_snapshot, self._failed(str(exc), exc))
                 return
             if signature == self.signature and unread == self.unread_total:
                 self.clear_incident("inbox")
-                AppHelper.callAfter(self.touch_snapshot)
+                self.land(self.touch_snapshot)
                 return
             self.unread_total = unread
         truncated: list[str] = []
@@ -1196,7 +1250,7 @@ class LinearTodoApp(NSObject):
             snapshot = self._failed(f"{type(exc).__name__}: {exc}")
         if not snapshot.error:
             self.last_full = now()
-        AppHelper.callAfter(self.apply_snapshot, snapshot)
+        self.land(self.apply_snapshot, snapshot)
         # Les photos arrivent après le badge : le menu est reconstruit à chaque ouverture.
         if not snapshot.error:
             faces = {item.avatar for item in snapshot.items}
@@ -1309,7 +1363,10 @@ class LinearTodoApp(NSObject):
         attendu = None if announced is None else announced - self.snapshot.stale
         more = bool(self.snapshot.truncated) or (attendu is not None and attendu > count)
         badge = _capped(count, more) if count else ""
-        shown = self.draw_badge(count, urgent, badge)
+        # Retenu tel quel pour l'animation de l'anneau : elle repeint chaque seconde et n'a
+        # aucune raison de refaire le tri des lignes, ni de perdre le « + » en chemin.
+        self.bar_shown = (count, urgent, badge, warm)
+        shown = self.draw_badge(count, urgent, badge, warm)
         who = f" (vu en tant que @{self.snapshot.identity})" if self.snapshot.impersonating else ""
         # Les deux comptes sont des sujets, comme les lignes de la boîte de Linear.
         parts = [f"{count} à lire" if count else "", f"{warm} à traiter" if warm else ""]
@@ -1347,11 +1404,12 @@ class LinearTodoApp(NSObject):
         """Repeint la seule image de la barre, pour faire avancer l'anneau."""
         if self.status_item is None or self.loading():
             return
-        count, urgent = summarize(self.visible())
-        self.draw_badge(count, urgent, str(count) if count else "")  # l'anneau seul a bougé
+        # Le compte vient du dernier cycle : le recalculer chaque seconde coûterait deux
+        # parcours complets des lignes pour une image qui n'avance que d'un degré.
+        self.draw_badge(*self.bar_shown)  # l'anneau seul a bougé
 
     @objc.python_method
-    def draw_badge(self, count: int, urgent: bool, badge: str) -> dict:
+    def draw_badge(self, count: int, urgent: bool, badge: str, warm: int = 0) -> dict:
         """Peint l'élément de la barre et décrit ce qui a été affiché."""
         button = self.status_item.button()
         if self.cfg.badge_style == "avatar":
@@ -1362,7 +1420,6 @@ class LinearTodoApp(NSObject):
                 ring = self.cfg.show_refresh_ring
                 base = _with_ring(photo, self.progress()) if ring else photo
                 span = RING_SIZE if ring else BAR_SIZE
-                warm = summarize_warm(self.visible())
                 portrait = _bar_image(
                     base, badge, str(warm) if warm else "", self.level(), span
                 )
@@ -1507,17 +1564,20 @@ class LinearTodoApp(NSObject):
 
         En tête du menu, parce que tout ce qui suit doit être lu en sachant qu'il est partiel.
         """
-        if not self.health:
+        # Une seule vue du dictionnaire pour toute la section : le fil de fond peut le vider
+        # entre le test et le calcul du niveau, et `LEVELS[""]` lèverait en plein dessin.
+        health = self.health
+        if not health:
             return
-        level = self.level()
+        level = self.level(health)
         title, _ = LEVELS[level]
         badge = _row_image(_alert_symbol(level, ALERT_SIZE))
         header = NSMenuItem.alloc().init()
-        header.setAttributedTitle_(_header(f"{title} ({len(self.health)})", LEVELS[level][1]))
+        header.setAttributedTitle_(_header(f"{title} ({len(health)})", LEVELS[level][1]))
         header.setImage_(_chrome_symbol("exclamationmark.triangle.fill", LEVELS[level][1]))
         header.setEnabled_(False)
         menu.addItem_(header)
-        for source, trouble in sorted(self.health.items()):
+        for source, trouble in sorted(health.items()):
             label, effect = SOURCES.get(source, (source, ""))
             kind = trouble["kind"]
             code = f"HTTP {trouble['status']}" if trouble.get("status") else CODES.get(kind, kind)

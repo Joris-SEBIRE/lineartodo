@@ -6,6 +6,8 @@ import json
 import os
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
+from types import UnionType
+from typing import Union, get_args, get_origin, get_type_hints
 
 # Surchargeables pour tester sans toucher à la configuration et à l'état réels.
 CONFIG_PATH = Path(os.environ.get("LINEARTODO_CONFIG") or Path.home() / ".config" / "lineartodo" / "config.json")
@@ -14,6 +16,29 @@ STATE_PATH = Path(
     or Path.home() / "Library" / "Application Support" / "LinearTodo" / "state.json"
 )
 
+
+
+def _accepted(hint) -> tuple:
+    """Types concrets qu'une annotation accepte : `str | None` et `list[str]` compris."""
+    if get_origin(hint) in (Union, UnionType):
+        return tuple(t for arm in get_args(hint) for t in _accepted(arm))
+    origin = get_origin(hint) or hint
+    return (origin,) if isinstance(origin, type) else ()
+
+
+def _keep(value, hint) -> bool:
+    """Le fichier est modifiable à la main : une valeur du mauvais type est écartée.
+
+    Sans ce filtre, un `refresh_seconds: "vingt"` fait lever une exception à chaque cycle,
+    dans le fil de fond, et l'app se fige en continuant d'afficher un état crédible.
+    """
+    accepted = _accepted(hint)
+    if not accepted:
+        return True
+    # `True` est un entier pour Python : sans ce garde-fou, un booléen passerait pour un délai.
+    if isinstance(value, bool) and bool not in accepted:
+        return False
+    return isinstance(value, accepted)
 
 @dataclass
 class Config:
@@ -65,13 +90,15 @@ class Config:
     @classmethod
     def load(cls) -> "Config":
         known = {f.name for f in fields(cls)}
+        hints = get_type_hints(cls)
         data: dict = {}
         if CONFIG_PATH.exists():
             try:
                 raw = json.loads(CONFIG_PATH.read_text() or "{}")
-                data = {k: v for k, v in raw.items() if k in known}
             except (json.JSONDecodeError, OSError):
-                data = {}
+                raw = {}
+            if isinstance(raw, dict):
+                data = {k: v for k, v in raw.items() if k in known and _keep(v, hints[k])}
         cfg = cls(**data)
         # Réécrit le fichier quand des options apparaissent ou disparaissent, pour qu'il reste
         # le reflet exact de ce que l'app sait lire.

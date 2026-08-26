@@ -344,7 +344,10 @@ def build_items(
     if not impersonating:
         items += inbox_items(notes)
         items += filed_items(notes, cfg)
-    items += mine_items(work)
+    # Décocher « Mes tickets » doit les retirer du menu, pas seulement cesser de les
+    # rafraîchir : `work` reste rempli tant que les clôturés sont demandés.
+    if cfg.show_mine:
+        items += mine_items(work)
     items += closed_items(work, cfg, notes)
     # Un invariant par badge : le rouge compte les sujets qui portent du non-lu, le violet ceux
     # qui sont lus sans être rangés. Le reste informe et ne compte nulle part.
