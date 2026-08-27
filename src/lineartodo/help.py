@@ -185,9 +185,11 @@ leur lien n'ouvre plus rien. Elles finissent dans l'historique, marquées « tic
 sans compter dans aucune pastille
 - ouvrir une ligne ne marque rien comme lu ici : c'est Linear qui le fait quand la page s'ouvre \
 chez lui, et la ligne passe alors du rouge au bleu au cycle suivant. L'app n'écrit jamais
-- un compte suivi d'un `+` est un plancher : la liste est écrêtée, ou Linear annonce plus de \
-non-lues que la boîte n'en a servi. Les notifications sur ticket supprimé sont retirées de cette \
-comparaison, sans quoi le `+` ne mènerait à rien
+- dans un titre de section, un compte suivi d'un `+` est un plancher : la liste est écrêtée. La \
+pastille de la barre ne porte jamais de `+` : à sa taille il ne se lirait pas, et il resterait \
+allumé en permanence dès qu'une source est écrêtée. Quand Linear annonce plus de non-lues que sa \
+boîte n'en a servi, le menu chiffre l'écart en bas ; les notifications sur ticket supprimé en \
+sont retirées, sans quoi l'écart ne mènerait à rien
 - le compteur de Linear additionne des notifications, la pastille compte des sujets : trois \
 commentaires sur un même ticket font 3 chez lui et 1 ici, exactement comme sa boîte n'affiche \
 qu'une ligne

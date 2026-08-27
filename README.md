@@ -106,8 +106,9 @@ suivants.
   quoi nommer une branche.
 - **⌘R** : actualise tout de suite.
 - Le point ● marque ce qui est arrivé depuis la dernière ouverture du menu.
-- Un compte suivi d'un `+` est un plancher : la liste est écrêtée, ou Linear annonce plus de
-  non-lues que la boîte n'en a servi.
+- Dans un titre de section, un compte suivi d'un `+` est un plancher : la liste est écrêtée. La
+  pastille de la barre, elle, ne porte jamais de `+` : elle donne le nombre. Quand Linear annonce
+  plus de non-lues que sa boîte n'en a servi, le menu le chiffre en bas.
 - Lire n'est pas traiter : ouvrir une notification la fait passer du rouge au bleu, elle reste
   à faire. C'est **ranger** la notification dans Linear qui l'éteint — l'app ne le fait jamais à
   ta place, elle le lit au cycle suivant.

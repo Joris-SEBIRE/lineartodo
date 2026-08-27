@@ -1356,15 +1356,14 @@ class LinearTodoApp(NSObject):
         lines = self.visible()
         count, urgent = summarize(lines)
         warm = summarize_warm(lines)
-        # Linear peut annoncer plus de non-lues que la boîte n'en a servi : le « + » le dit.
-        # Son compteur inclut les notifications dont le ticket est à la corbeille, que sa propre
-        # boîte ne montre plus : les retirer évite un « + » qui ne mène à rien.
+        # La pastille de la barre ne porte que le nombre. Un « + » y tiendrait sur 8 pt de haut
+        # sans se lire, et il resterait allumé en permanence dès qu'une source est écrêtée, ce
+        # qui est l'état normal d'une boîte bruyante : un modificateur toujours vrai n'apprend
+        # rien. L'écart, lui, est dit dans le menu, qui a la place de le chiffrer.
         announced = self.snapshot.unread_total
-        attendu = None if announced is None else announced - self.snapshot.stale
-        more = bool(self.snapshot.truncated) or (attendu is not None and attendu > count)
-        badge = _capped(count, more) if count else ""
+        badge = str(count) if count else ""
         # Retenu tel quel pour l'animation de l'anneau : elle repeint chaque seconde et n'a
-        # aucune raison de refaire le tri des lignes, ni de perdre le « + » en chemin.
+        # aucune raison de refaire le tri des lignes.
         self.bar_shown = (count, urgent, badge, warm)
         shown = self.draw_badge(count, urgent, badge, warm)
         who = f" (vu en tant que @{self.snapshot.identity})" if self.snapshot.impersonating else ""
@@ -1765,9 +1764,27 @@ class LinearTodoApp(NSObject):
             self.footer_item.setAttributedTitle_(self.refresh_title(summarize(lines)[0], summarize_warm(lines)))
 
     @objc.python_method
+    def unserved(self, unread: int) -> int:
+        """Non-lues que Linear annonce sans que sa boîte les ait servies.
+
+        Son compteur inclut les notifications dont le ticket est à la corbeille, que sa propre
+        boîte ne montre plus : les retirer évite d'annoncer un écart qui ne mène à rien.
+        """
+        announced = self.snapshot.unread_total
+        if announced is None:
+            return 0
+        return max(0, announced - self.snapshot.stale - unread)
+
+    @objc.python_method
     def add_footer(self, menu, unread: int) -> None:
         for note in self.snapshot.truncated:
             self.add_info(menu, f"limite atteinte : {note}", "exclamationmark.triangle")
+        if manquantes := self.unserved(unread):
+            self.add_info(
+                menu,
+                f"{manquantes} non-lue(s) annoncée(s) par Linear, absente(s) de sa boîte",
+                "exclamationmark.triangle",
+            )
         if self.snapshot.impersonating:
             self.add_info(
                 menu, "boîte de réception indisponible à la place d'un collègue", "exclamationmark.triangle"
