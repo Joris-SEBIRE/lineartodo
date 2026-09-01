@@ -673,7 +673,7 @@ def _chip_run(chips, tint: str | None = None):
     grey = NSColor.secondaryLabelColor()
     accent = getattr(NSColor, tint)() if tint else None
     run = NSMutableAttributedString.alloc().init()
-    for name, label in chips:
+    for name, label, *own in chips:
         if name.startswith(STATE_MARK):
             # L'état du ticket garde la couleur que Linear lui donne : elle ne dépend ni de la
             # ligne ni de l'app.
@@ -686,7 +686,8 @@ def _chip_run(chips, tint: str | None = None):
         image = _symbol(name, GLYPH_CHIP)
         if image is None:
             continue
-        colour = accent if label and accent is not None else grey
+        strong = bool(own) or bool(label and accent is not None)
+        colour = getattr(NSColor, own[0])() if own else (accent if strong else grey)
         tinted = image.imageWithSymbolConfiguration_(
             NSImageSymbolConfiguration.configurationWithPaletteColors_([colour])
         )
@@ -696,7 +697,7 @@ def _chip_run(chips, tint: str | None = None):
                 (f" {label}" if label else "") + "   ",
                 META_FONT,
                 color=colour,
-                weight=NSFontWeightMedium if label and accent is not None else None,
+                weight=NSFontWeightMedium if strong else None,
             )
         )
     return run
@@ -1626,7 +1627,10 @@ class LinearTodoApp(NSObject):
         if menu.numberOfItems():
             menu.addItem_(NSMenuItem.separatorItem())
         ceiling = self.rows_for(kind)
-        shown = items[:ceiling]
+        # L'ordre de la section ne bouge pas : c'est sa chronologie qui la rend lisible. Un
+        # compte évincé par l'écrêtage n'est donc pas remonté, il est reporté sur la ligne
+        # d'écrêtage, où il continue de s'additionner jusqu'au badge.
+        shown, hidden = items[:ceiling], items[ceiling:]
         # Le compte porte sur ce qui est affiché, et un « + » dit qu'il en reste derrière : un
         # nombre à son plafond ne le dit pas de lui-même. Les sections de notifications
         # comptent leurs non-lues, pas leurs lignes, parce que c'est ce total qui monte
@@ -1643,8 +1647,19 @@ class LinearTodoApp(NSObject):
         menu.addItem_(header)
         for item in shown:
             self.add_row(menu, item)
-        if len(items) > ceiling:
-            self.add_info(menu, f"{len(items) - ceiling} de plus, non affichés", "ellipsis")
+        if hidden:
+            # Le reste des badges est porté par cette ligne, chaque nombre dans la couleur du
+            # badge auquel il va : la somme des pastilles visibles, celle-ci comprise, vaut
+            # toujours le badge, sans avoir à toucher à l'ordre des lignes.
+            left = tuple(
+                (group.symbol, str(count), tint)
+                for count, tint in (
+                    (sum(item.weight for item in hidden if not item.warm), "systemRedColor"),
+                    (sum(item.weight for item in hidden if item.warm), SECOND_TINT),
+                )
+                if count
+            )
+            self.add_info(menu, f"{len(hidden)} de plus, non affichés", "ellipsis", left)
 
     @objc.python_method
     def add_row(self, menu, item: Item) -> None:
@@ -1716,9 +1731,15 @@ class LinearTodoApp(NSObject):
         return entry
 
     @objc.python_method
-    def add_info(self, menu, text: str, symbol: str = ""):
+    def add_info(self, menu, text: str, symbol: str = "", chips=()):
         info = NSMenuItem.alloc().init()
-        info.setAttributedTitle_(_grey(text))
+        title = NSMutableAttributedString.alloc().initWithAttributedString_(
+            _grey(text + ("   " if chips else ""))
+        )
+        if chips:
+            # Chaque pastille nomme sa propre couleur, donc pas de teinte de ligne à passer.
+            title.appendAttributedString_(_chip_run(chips))
+        info.setAttributedTitle_(title)
         if symbol:
             info.setImage_(_chrome_symbol(symbol))
         info.setEnabled_(False)
@@ -1768,22 +1789,29 @@ class LinearTodoApp(NSObject):
             self.footer_item.setAttributedTitle_(self.refresh_title(summarize(lines)[0], summarize_warm(lines)))
 
     @objc.python_method
-    def unserved(self, unread: int) -> int:
-        """Non-lues que Linear annonce sans que sa boîte les ait servies.
+    def unserved(self) -> int:
+        """Non-lues que Linear annonce sans que sa boîte les ait jamais servies.
 
-        Son compteur inclut les notifications dont le ticket est à la corbeille, que sa propre
-        boîte ne montre plus : les retirer évite d'annoncer un écart qui ne mène à rien.
+        Son compteur porte des notifications, pas des sujets : un ticket qui reçoit trois
+        commentaires vaut un dans la barre et trois chez lui. Comparer les deux directement
+        inventerait un écart à chaque conversation. On compare donc à ce que la boîte a servi,
+        quel que soit le sort de chaque notification ensuite — ticket à la corbeille, ou mise en
+        sommeil : servie et écartée n'est pas manquante.
+
+        À la place d'un collègue, la boîte n'est pas lisible et le compteur reçu est celui du
+        propriétaire de la clé : il n'y a alors aucun écart à annoncer.
         """
         announced = self.snapshot.unread_total
-        if announced is None:
+        if announced is None or self.snapshot.impersonating:
             return 0
-        return max(0, announced - self.snapshot.stale - unread)
+        served = sum(1 for note in self.notes if note.unread and not note.archived)
+        return max(0, announced - served)
 
     @objc.python_method
     def add_footer(self, menu, unread: int) -> None:
         for note in self.snapshot.truncated:
             self.add_info(menu, f"limite atteinte : {note}", "exclamationmark.triangle")
-        if manquantes := self.unserved(unread):
+        if manquantes := self.unserved():
             self.add_info(
                 menu,
                 f"{manquantes} non-lue(s) annoncée(s) par Linear, absente(s) de sa boîte",
