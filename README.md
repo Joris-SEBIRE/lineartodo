@@ -93,6 +93,11 @@ n'existe pas pour l'app. Attention quand même, une clé personnelle Linear vaut
 donne aussi le droit d'écrire, que cette app n'utilise pas. Garde-la comme un mot de passe, et
 révoque-la depuis la même page si elle a traîné ailleurs.
 
+Le plus simple est de la coller dans le champ **Clé d'API** de la fenêtre de réglages : ⌘V y
+fonctionne, « Enregistrer » la range dans le trousseau et l'essaie aussitôt, et le bandeau du bas
+dit le compte auquel elle donne accès ou la raison du refus. La lecture repart avec la nouvelle
+clé sans relancer l'app, le champ se vide, et rien n'atterrit dans le fichier de réglages.
+
 Au premier accès au trousseau, macOS demande l'autorisation pour `/usr/bin/security`, l'outil
 d'Apple par lequel passe la lecture. « Toujours autoriser » évite la question aux lancements
 suivants.

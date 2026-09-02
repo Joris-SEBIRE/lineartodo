@@ -79,12 +79,31 @@ class LinearError(Exception):
         return "erreur"
 
 
-def _run(cmd: list[str]) -> str | None:
+def _run(cmd: list[str], feed: str | None = None) -> str | None:
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=20, input=feed)
     except (OSError, subprocess.SubprocessError):
         return None
     return out.stdout.strip() or None if out.returncode == 0 else None
+
+
+def store_key(value: str) -> str:
+    """Range une clé dans le trousseau, et dit ce qui a cloché le cas échéant.
+
+    La clé passe par l'entrée standard de `security`, pas par ses arguments : dans le second
+    cas elle serait lisible dans la liste des processus le temps de l'appel. `security` la
+    demande deux fois, d'où les deux lignes.
+    """
+    value = (value or "").strip()
+    if not value:
+        return "clé vide"
+    done = _run(
+        ["/usr/bin/security", "add-generic-password", "-U", "-a", getpass.getuser(), "-s", KEYCHAIN_SERVICE, "-w"],
+        feed=f"{value}\n{value}\n",
+    )
+    if done is None:
+        return "le trousseau a refusé l'écriture"
+    return ""
 
 
 def _person(node: dict | None) -> Person | None:

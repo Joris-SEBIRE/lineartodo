@@ -62,7 +62,7 @@ from .avatars import BAR_SIZE, SIZE as AVATAR_SIZE, Avatars
 from .config import CONFIG_PATH, Config
 from .engine import build_items, count_stale, now, summarize, summarize_warm
 from .formatting import ago, countdown, join, since, spell, truncate
-from .linear import STATUS_PAGE, Linear, LinearError
+from .linear import KEYCHAIN_SERVICE, STATUS_PAGE, Linear, LinearError, store_key
 from .models import GROUPS, ORDER, Item, Kind, Person, Snapshot, Work
 from .state import State, acquire_single_instance, log_error, write_status
 
@@ -1934,6 +1934,32 @@ class LinearTodoApp(NSObject):
         else:
             launchagent.enable(program)
 
+    @objc.python_method
+    def apply_key(self, key: str) -> tuple[bool, str]:
+        """Range une clé neuve dans le trousseau, l'éprouve, et relance la lecture.
+
+        Enregistrer sans essayer laisserait devant une app muette, sans savoir si le silence
+        vient de la clé ou de Linear : c'est l'aller-retour immédiat qui tranche, et il nomme
+        le compte auquel la clé donne accès.
+        """
+        trouble = store_key(key)
+        if trouble:
+            return False, f"clé non enregistrée : {trouble}"
+        self.client.key(refresh=True)
+        try:
+            who = self.client.fetch_viewer()
+        except LinearError as exc:
+            return False, f"clé refusée par Linear : {exc}"
+        if who is None:
+            return False, "clé enregistrée, mais Linear ne dit pas à qui elle appartient"
+        # La clé a changé : tout ce qui vient de l'ancienne est à relire, sonde comprise.
+        self.viewer = who
+        self.signature, self.unread_total = "", None
+        self.notes, self.work_at, self.done_at, self.people_at = [], None, None, None
+        self.clear_incident("inbox")
+        self.start_fetch(spinner=True)
+        return True, f"clé acceptée pour @{who.display_name}, dans le trousseau « {KEYCHAIN_SERVICE} »"
+
     def openHelp_(self, sender):
         """Réglages modifiables et mode d'emploi, avec les valeurs réelles de l'installation."""
         self.help_window = manual.panel(
@@ -1942,6 +1968,7 @@ class LinearTodoApp(NSObject):
                 "viewer": self.snapshot.viewer,
                 "teams": self.cfg.teams,
                 "key": self.client.key_origin,
+                "apply_key": self.apply_key,
             }
         )
         NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
