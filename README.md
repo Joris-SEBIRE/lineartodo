@@ -94,9 +94,10 @@ donne aussi le droit d'écrire, que cette app n'utilise pas. Garde-la comme un m
 révoque-la depuis la même page si elle a traîné ailleurs.
 
 Le plus simple est de la coller dans le champ **Clé d'API** de la fenêtre de réglages : ⌘V y
-fonctionne, « Enregistrer » la range dans le trousseau et l'essaie aussitôt, et le bandeau du bas
-dit le compte auquel elle donne accès ou la raison du refus. La lecture repart avec la nouvelle
-clé sans relancer l'app, le champ se vide, et rien n'atterrit dans le fichier de réglages.
+fonctionne, le bouton au bout du champ la range dans le trousseau et l'essaie aussitôt, et le
+bandeau du bas dit le compte auquel elle donne accès ou la raison du refus. La coche ne reste que
+si la clé a été acceptée. La lecture repart avec elle sans relancer l'app, le champ se vide, et
+rien n'atterrit dans le fichier de réglages.
 
 Au premier accès au trousseau, macOS demande l'autorisation pour `/usr/bin/security`, l'outil
 d'Apple par lequel passe la lecture. « Toujours autoriser » évite la question aux lancements
@@ -177,6 +178,12 @@ installation.
 
 Les réglages sont écrits dans `~/.config/lineartodo/config.json`, relu à chaud. Le fichier se
 complète seul quand une option apparaît.
+
+**Chaque ligne s'enregistre seule.** Tant qu'elle vaut ce qui est sur le disque, elle ne porte
+rien. Modifiée, un bouton paraît au bout de son champ, et la valeur enregistrée se rappelle en
+dessous — ce qu'on s'apprête à remplacer. Enregistrée, un trait vert passe sous le champ et une
+coche reste à sa place, jusqu'à la modification suivante. Le second bouton, à gauche, revient à la
+valeur d'origine. À l'ouverture, la fenêtre montre le fichier, jamais un brouillon abandonné.
 
 ## Voir en tant que
 
