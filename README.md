@@ -170,6 +170,91 @@ compteur de Linear, lui, additionne des notifications : trois commentaires sur u
 Le deuxième renseignement d'une ligne dit toujours à qui appartient le visage : « notifié par »
 dans la boîte, « créé par » dans tes tickets, « terminé par » ou « supprimé par » dans l'histoire.
 
+## Raccourcis en tête de menu
+
+Une ligne d'icônes est épinglée tout en haut, avant les sections. Elle reprend **les lignes du
+pied de menu** : mêmes icônes, même ordre, mêmes mots — actualiser, voir en tant que, lancer au
+démarrage, la carte des tickets, les réglages, quitter — plus « réafficher les éléments masqués »
+quand il y en a. Ces lignes restent en bas, écrites en entier ; en haut, elles sont à portée sans
+dérouler.
+
+Les actions se partagent la largeur du menu en parts égales. Chacune porte son icône puis le
+début de son libellé, coupé net à la part suivante. Le survol pose une pastille sous la part
+visée, change le curseur en main et donne l'infobulle complète ; le clic l'éclaire un instant,
+sans quoi rien ne dirait qu'il a été pris. Celles qui basculent se colorent quand elles sont
+actives — le lancement au démarrage, et la carte quand sa fenêtre est déjà ouverte, auquel cas le
+clic la ramène au premier plan au lieu d'en ouvrir une seconde.
+
+Le survol se lit par sondage de la position de la souris, vingt fois par seconde et seulement
+menu ouvert : dans un menu déroulé, les zones de suivi d'AppKit ne délivrent leur entrée qu'une
+fois sur deux.
+
+Une limite à connaître : macOS ne sait pas épingler une ligne dans un menu déroulant. Quand le
+menu dépasse la hauteur de l'écran — c'est le cas dès quelques dizaines de lignes — il défile, et
+la barre défile avec lui. Ce qui reste atteignable partout, ce sont les raccourcis clavier : **⌘R**
+actualise, **⌘M** ouvre la carte, **⌘,** ouvre les réglages, **⌘Q** quitte, où qu'on en soit dans
+le défilement. Pour garder la barre sous les yeux, le levier est la longueur du menu : les réglages
+« Lignes de … » de chaque section.
+
+## La carte des tickets
+
+Menu **Carte des tickets** (⌘M). Une fenêtre à part, qui dessine ce qui t'est assigné au lieu de
+l'énumérer : une carte par ticket, et des flèches typées entre elles. Elle suit les lectures —
+chaque cycle la met à jour, sans la recadrer sous les yeux.
+
+**Une carte.** En haut : le visage du créateur, le numéro, l'état — avec le rond de Linear et sa
+couleur — et la priorité, l'icône de Linear redessinée à ses cotes, dans une couleur qui monte
+avec l'urgence. En dessous, ce qui retient le ticket : « bloqué ×N » ou « démarrable », puis son
+étiquette de type quand Linear en pose une — **Bug**, **Feature request**. Puis le titre, sur
+trois lignes au plus. En bas : le visage de l'assigné, les **pull requests** avec leur numéro et
+la couleur GitHub de leur état, et le temps écoulé depuis le dernier changement d'état.
+
+**Le filet de gauche est rouge pour un bug**, et rien d'autre : c'est la seule chose qu'on veut
+repérer de loin, sans lire. Le reste se lit de près, sur les gélules.
+
+**Le temps se colore** par paliers — le jour, trois jours, la semaine, le mois, le trimestre — du
+gris au rouge, en glissant entre deux paliers. Il compte depuis le dernier mouvement du ticket,
+pas depuis sa création : c'est ce qui dit s'il avance. Linear ne donne pas cette date, elle se
+lit dans l'historique du ticket.
+
+**Trois flèches, trois familles**, rappelées par le bandeau du bas. Le trait plein descend du bas
+d'un parent vers le haut de son enfant. Les tirets vont d'un projet à ses tickets, dans la couleur
+du projet. Les pointillés rouges, marqués « bloque », partent toujours du flanc droit et arrivent
+toujours sur le flanc gauche — même quand la cible est à gauche, parce qu'une famille de flèche se
+reconnaît à l'endroit d'où elle part.
+
+**Aucune flèche ne passe sous une carte.** Les cartes se posent sur une grille : les gouttières
+verticales et les bandes horizontales sont donc libres partout, et les flèches n'empruntent
+qu'elles. Quatre ancrages par bord, attribués dans l'ordre des cibles, évitent qu'elles partent du
+même point ; deux tracés qui longent la même réserve prennent des voies différentes.
+
+**Les frères sont rangés dans l'ordre où le travail peut se faire** : ce qui débloque avant ce qui
+est bloqué, par tri topologique des blocages du groupe. Sans blocage connu, le numéro tranche —
+c'est l'ordre dans lequel le sujet a été découpé. Une boucle de blocages ne fait pas tourner le
+tri en rond : on prend le plus petit numéro et on avance.
+
+**Sous le pointeur** : une carte s'entoure de la couleur de l'app, ses voisines s'éclaircissent,
+ses flèches ressortent et les autres s'effacent ; une flèche frôlée s'épaissit et isole les deux
+cartes qu'elle relie ; une gélule de PR s'affirme et se cercle, parce qu'elle mène ailleurs — un
+clic dessus ouvre la PR sur GitHub, un clic ailleurs sur la carte ouvre le ticket dans Linear. Le
+curseur suit : main ouverte pour déplacer, main fermée pendant le déplacement, doigt sur ce qui
+s'ouvre.
+
+**La carte montre tout ce qui t'est assigné et n'est pas clos**, backlog compris et sans
+condition : un sous-ticket resté en backlog manquait au plan sans qu'on sache pourquoi. Le réglage
+« Backlog dans le menu », activé par défaut, ne gouverne que la section du menu.
+
+**Le plan** se lit de haut en bas : un couloir par projet — le plus chargé d'abord — puis les
+tickets sans projet. Un parent absent de la liste garde sa place en carte pointillée, et un ticket
+sans projet qui bloque un ticket de projet rejoint son couloir.
+
+Se déplacer : glisser à la souris, ou la molette. Zoomer : ⌘ et molette, pincer, ⌘+ et ⌘-. **⌘0**
+recadre. Les tickets sortis du cadre se comptent en pastilles posées sur le bord, là où la droite
+qui va du centre de la fenêtre vers la carte coupe ce bord, avec un chevron qui dit vers où ils
+sont partis. Elles sont rouges quand elles n'annoncent que des bugs, grises dès qu'elles mélangent.
+Cliquer une pastille amène ce groupe au centre. La somme des pastilles vaut toujours le nombre de
+cartes hors cadre.
+
 ## Réglages
 
 Menu **Réglages et mode d'emploi**. La fenêtre contient les deux : à gauche un formulaire pour
