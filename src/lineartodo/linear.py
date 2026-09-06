@@ -18,7 +18,9 @@ from .models import (
     Note,
     OPEN_STATES,
     Person,
+    Pull,
     Relation,
+    Tag,
     Work,
     initials_face,
     parse_day,
@@ -191,12 +193,72 @@ def _relations(node: dict) -> tuple[tuple[Relation, ...], tuple[Relation, ...]]:
     return tuple(mine), tuple(against)
 
 
+def _children(node: dict) -> tuple[Relation, ...]:
+    """Sous-tickets, dans la même forme que les autres liens : un enfant est un lien typé."""
+    return tuple(
+        Relation(
+            type="child",
+            other=entry.get("identifier") or "",
+            title=(entry.get("title") or "").strip(),
+            state=((entry.get("state") or {}).get("type") or ""),
+            assignee=((entry.get("assignee") or {}).get("displayName") or ""),
+        )
+        for entry in ((node.get("children") or {}).get("nodes") or [])
+    )
+
+
+def _tags(node: dict) -> tuple[Tag, ...]:
+    """Étiquettes du ticket, chacune avec le groupe dont elle relève."""
+    return tuple(
+        Tag(
+            name=(entry.get("name") or "").strip(),
+            colour=entry.get("color") or "",
+            group=((entry.get("parent") or {}).get("name") or ""),
+        )
+        for entry in ((node.get("labels") or {}).get("nodes") or [])
+        if entry.get("name")
+    )
+
+
+def _pulls(node: dict) -> tuple[Pull, ...]:
+    """Pull requests rattachées, tirées des pièces jointes GitHub.
+
+    `metadata` est un objet libre : on n'en garde que ce qui se dessine, et une pièce sans
+    numéro n'en est pas une — un lien collé à la main n'a pas à passer pour une PR.
+    """
+    pulls = []
+    for entry in ((node.get("attachments") or {}).get("nodes") or []):
+        if (entry.get("sourceType") or "") != "github":
+            continue
+        data = entry.get("metadata") or {}
+        number = data.get("number")
+        if not isinstance(number, int):
+            continue
+        status = str(data.get("status") or ("draft" if data.get("draft") else "open"))
+        pulls.append(Pull(number=number, status=status, url=data.get("url") or entry.get("url") or ""))
+    return tuple(sorted(pulls, key=lambda pull: pull.number))
+
+
+def _moved_at(node: dict, started, triaged, created):
+    """Date du dernier changement d'état, ou la meilleure approximation qui reste.
+
+    L'historique la donne quand il l'a gardée. Sinon, c'est que le ticket n'a jamais bougé
+    depuis un des jalons que Linear date lui-même : le début, le tri, ou la création.
+    """
+    for entry in ((node.get("history") or {}).get("nodes") or []):
+        if entry.get("toState") and entry.get("createdAt"):
+            return parse_ts(entry["createdAt"])
+    return started or triaged or created
+
+
 def _issue(node: dict | None, source: str = "") -> Issue | None:
     if not node:
         return None
     state = node.get("state") or {}
     team = node.get("team") or {}
     cycle = node.get("cycle") or {}
+    project = node.get("project") or {}
+    parent = node.get("parent") or {}
     assignee = _person(node.get("assignee"))
     relations, blocked_by = _relations(node)
     comments = tuple(
@@ -234,14 +296,28 @@ def _issue(node: dict | None, source: str = "") -> Issue | None:
         assignee_face=assignee.face if assignee else "",
         creator=((node.get("creator") or {}).get("displayName") or ""),
         creator_face=_face_of(node.get("creator")),
-        project=((node.get("project") or {}).get("name") or ""),
+        project=(project.get("name") or ""),
+        project_id=(project.get("id") or ""),
+        project_colour=(project.get("color") or ""),
+        milestone=((node.get("projectMilestone") or {}).get("name") or ""),
         cycle=(f"cycle {int(cycle['number'])}" if cycle.get("number") is not None else ""),
-        parent=((node.get("parent") or {}).get("identifier") or ""),
+        parent=(parent.get("identifier") or ""),
+        parent_title=((parent.get("title") or "").strip()),
+        parent_state=((parent.get("state") or {}).get("type") or ""),
+        parent_url=(parent.get("url") or ""),
+        branch=(node.get("branchName") or ""),
+        labels=_tags(node),
+        pulls=_pulls(node),
+        parent_colour=((parent.get("state") or {}).get("color") or ""),
+        children=_children(node),
         estimate=node.get("estimate"),
         due=parse_day(node.get("dueDate")),
         created_at=parse_ts(node.get("createdAt")),
         updated_at=parse_ts(node.get("updatedAt")),
         started_at=parse_ts(node.get("startedAt")),
+        moved_at=_moved_at(
+            node, parse_ts(node.get("startedAt")), parse_ts(node.get("triagedAt")), parse_ts(node.get("createdAt"))
+        ),
         closed_at=parse_ts(node.get("completedAt")) or parse_ts(node.get("canceledAt")),
         snoozed_until=parse_ts(node.get("snoozedUntilAt")),
         sla_at=parse_ts(node.get("slaBreachesAt")),
@@ -317,11 +393,15 @@ def _scoped(cfg: Config, base: dict) -> dict:
 
 
 def work_variables(cfg: Config, user_id: str | None, rows: int = 40) -> dict:
-    """La recherche de mes tickets ouverts : assignés à moi, pas encore clos."""
-    states = list(OPEN_STATES) if cfg.include_backlog else [state for state in OPEN_STATES if state != "backlog"]
+    """La recherche de mes tickets ouverts : assignés à moi, pas encore clos.
+
+    Le backlog est toujours demandé, même quand le menu ne le montre pas : la carte, elle, doit
+    tout dessiner — un sous-ticket resté en backlog manquait au plan sans qu'on sache pourquoi.
+    C'est le menu qui écarte ensuite ce qu'il ne veut pas voir.
+    """
     return {
         "n": max(5, min(rows, 100)),
-        "mine": _scoped(cfg, {"assignee": who_filter(user_id), "state": {"type": {"in": states}}}),
+        "mine": _scoped(cfg, {"assignee": who_filter(user_id), "state": {"type": {"in": list(OPEN_STATES)}}}),
     }
 
 

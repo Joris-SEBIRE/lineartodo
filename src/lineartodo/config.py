@@ -71,7 +71,7 @@ class Config:
     mine_rows: int = 20
     # Le backlog d'un dev actif compte des centaines de tickets : hors périmètre par défaut,
     # seuls le triage, « à faire » et « en cours » sont du travail engagé.
-    include_backlog: bool = False
+    include_backlog: bool = True
     # Section des tickets clos.
     show_closed: bool = True
     closed_days: int = 14

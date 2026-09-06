@@ -263,15 +263,16 @@ def _issue_item(kind: Kind, issue: Issue, at: datetime, hint: str, extra: str = 
     )
 
 
-def mine_items(work: Work) -> list[Item]:
+def mine_items(work: Work, backlog: bool = True) -> list[Item]:
     """Mes tickets ouverts, du plus récemment bougé au plus dormant.
 
     Le tri fait le travail des anciennes sections déduites : ce qui n'a pas bougé depuis des
-    semaines tombe de lui-même en bas de la liste, et ce qui coince porte son étiquette.
+    semaines tombe de lui-même en bas de la liste, et ce qui coince porte son étiquette. Le
+    backlog est lu dans tous les cas mais ne descend ici que si le réglage le demande.
     """
     items = []
     for issue in sorted(work.mine, key=lambda entry: entry.at, reverse=True):
-        if not issue.open:
+        if not issue.open or (not backlog and issue.state_type == "backlog"):
             continue
         blockers = ", ".join(link.other for link in issue.blockers)
         items.append(
@@ -347,7 +348,7 @@ def build_items(
     # Décocher « Mes tickets » doit les retirer du menu, pas seulement cesser de les
     # rafraîchir : `work` reste rempli tant que les clôturés sont demandés.
     if cfg.show_mine:
-        items += mine_items(work)
+        items += mine_items(work, cfg.include_backlog)
     items += closed_items(work, cfg, notes)
     # Un invariant par badge : le rouge compte les sujets qui portent du non-lu, le violet ceux
     # qui sont lus sans être rangés. Le reste informe et ne compte nulle part.

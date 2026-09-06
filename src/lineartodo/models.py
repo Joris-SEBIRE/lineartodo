@@ -182,6 +182,28 @@ class Comment:
 
 
 @dataclass(frozen=True)
+class Tag:
+    """Étiquette Linear, avec son groupe : « Type » dit si c'est un bug ou une évolution."""
+
+    name: str
+    colour: str = ""
+    group: str = ""
+
+
+@dataclass(frozen=True)
+class Pull:
+    """Pull request rattachée au ticket, telle que Linear la range en pièce jointe."""
+
+    number: int
+    status: str  # draft, open, closed, merged
+    url: str = ""
+
+    @property
+    def label(self) -> str:
+        return f"#{self.number}"
+
+
+@dataclass(frozen=True)
 class Relation:
     """Lien entre deux tickets. `blocks` est le seul qui porte une contrainte de travail."""
 
@@ -214,13 +236,29 @@ class Issue:
     creator: str = ""
     creator_face: str = ""
     project: str = ""
+    # Identité et couleur du projet : la carte des tickets en fait un nœud, pas un simple nom.
+    project_id: str = ""
+    project_colour: str = ""
+    milestone: str = ""
     cycle: str = ""
     parent: str = ""
+    # De quoi dessiner le parent même quand il n'est pas dans la liste lue.
+    parent_title: str = ""
+    parent_state: str = ""
+    parent_url: str = ""
+    parent_colour: str = ""
+    branch: str = ""
+    labels: tuple[Tag, ...] = ()
+    pulls: tuple[Pull, ...] = ()
+    children: tuple[Relation, ...] = ()
     estimate: float | None = None
     due: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     started_at: datetime | None = None
+    # Dernier changement d'état, lu dans l'historique : « depuis quand ce ticket n'a pas bougé »
+    # se lit là, et pas dans sa date de création.
+    moved_at: datetime | None = None
     closed_at: datetime | None = None
     snoozed_until: datetime | None = None
     sla_at: datetime | None = None

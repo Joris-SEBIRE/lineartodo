@@ -62,18 +62,29 @@ fragment Word on Comment {
 
 TASK = """
 fragment Task on Issue {
-  id identifier title url priority estimate dueDate trashed
-  createdAt updatedAt startedAt completedAt canceledAt snoozedUntilAt slaBreachesAt
+  id identifier title url priority estimate dueDate trashed branchName
+  createdAt updatedAt startedAt triagedAt completedAt canceledAt snoozedUntilAt slaBreachesAt
   state { name type color }
   team { key name }
   assignee { ...Who }
   creator { ...Who }
-  project { name }
+  project { id name color }
+  projectMilestone { name }
   cycle { number name }
-  parent { identifier }
+  # Le parent et les enfants portent la carte des tickets : de quoi dessiner le parent même
+  # quand il n'est pas assigné, et compter les enfants qui, eux, ne le sont pas forcément.
+  # Le groupe de l'étiquette porte le sens : « Type » distingue un bug d'une évolution.
+  labels(first: 8) { nodes { name color parent { name } } }
+  # Les PR arrivent en pièces jointes GitHub ; `metadata` porte le numéro et l'état.
+  attachments(first: 6) { nodes { url sourceType metadata } }
+  parent { identifier title url state { type color } }
+  children(first: 20) { nodes { identifier } }
   inverseRelations(first: 6) {
     nodes { type issue { identifier title state { type } assignee { displayName } } }
   }
+  # Linear n'expose pas de date de dernier changement d'état : seul l'historique la porte.
+  # Vingt-cinq entrées suffisent — au-delà, les tickets qui n'en ont pas restent les mêmes.
+  history(first: 25) { nodes { createdAt toState { type } } }
 }
 """
 

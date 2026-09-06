@@ -17,6 +17,8 @@ from Cocoa import (
     NSBezierPath,
     NSBundle,
     NSColor,
+    NSCursor,
+    NSEvent,
     NSCompositingOperationSourceOver,
     NSEventModifierFlagCommand,
     NSEventModifierFlagControl,
@@ -56,9 +58,10 @@ from Cocoa import (
 )
 from PyObjCTools import AppHelper
 
-from . import IDENTITY_TINT, launchagent
+from . import IDENTITY_TINT, launchagent, mapwindow, shortcuts
 from . import help as manual
 from .avatars import BAR_SIZE, SIZE as AVATAR_SIZE, Avatars
+from .glyphs import state as _state_glyph, symbol as _symbol
 from .config import CONFIG_PATH, Config
 from .engine import build_items, count_stale, now, summarize, summarize_warm
 from .formatting import ago, countdown, join, since, spell, truncate
@@ -102,6 +105,8 @@ CHROME_LIFT = 1.75
 # pour les deux, sinon les deux colonnes se désaligneraient au premier réglage de l'une.
 LEFT_MARGIN = 6.0
 GLYPH_CHIP = 10.0
+# Largeur minimale d'une part de la barre d'accès rapide : en deçà, le libellé ne dit plus rien.
+SHORTCUT_MIN = 92.0
 # Étiquette de texte (« en retard ») et pastille de comptage : même primitive, deux géométries.
 TAG_HEIGHT, TAG_RADIUS, TAG_PADDING = 13.0, 3.0, 10.0
 # Pastille de comptage : le rayon vaut la moitié de la hauteur, donc un chiffre seul y tient
@@ -169,15 +174,6 @@ STACK_RING = 1.2
 # sans mentir, le rouge disant l'urgence. Il reste distinct du jaune et de l'orange des
 # avertissements, et il ne disparaît pas sur une ligne survolée.
 SECOND_TINT = IDENTITY_TINT
-
-
-def _symbol(name: str, size: float):
-    image = NSImage.imageWithSystemSymbolName_accessibilityDescription_(name, None)
-    if image is None:
-        return None
-    image.setTemplate_(True)
-    image.setSize_(NSMakeSize(size, size))
-    return image
 
 
 _BOXED: dict[tuple, object] = {}
@@ -582,82 +578,6 @@ def _attachment(image, offset: float):
 # ticket avance, dans la couleur que Linear donne à l'état. Les reproduire plutôt que de piocher
 # un symbole SF est ce qui rend la liste lisible d'un coup d'œil pour qui connaît son interface.
 STATE_MARK = "state:"
-STATE_RING = 1.4
-
-
-def _state_glyph(kind: str, colour: str, size: float = GLYPH_CHIP):
-    """Le rond d'état de Linear : vide, à moitié plein, plein et coché, ou barré.
-
-    La corbeille fait exception : un ticket supprimé n'a pas d'état d'avancement, seulement une
-    fin. Elle garde donc sa forme propre, dans le gris que Linear donne à ce qui est clos, pour
-    rester de la même famille que les autres sans prétendre être une étape.
-    """
-    tint = _hex_colour(colour) or NSColor.secondaryLabelColor()
-    if kind == "trashed":
-        glyph = _symbol("trash", size)
-        return (
-            glyph.imageWithSymbolConfiguration_(
-                NSImageSymbolConfiguration.configurationWithPaletteColors_([tint])
-            )
-            if glyph is not None
-            else None
-        )
-    canvas = NSImage.alloc().initWithSize_(NSMakeSize(size, size))
-    middle = size / 2
-    inset = STATE_RING / 2
-    box = NSMakeRect(inset, inset, size - STATE_RING, size - STATE_RING)
-    canvas.lockFocus()
-    ring = NSBezierPath.bezierPathWithOvalInRect_(box)
-    ring.setLineWidth_(STATE_RING)
-    tint.setStroke()
-    tint.setFill()
-    if kind in ("completed", "canceled", "duplicate"):
-        NSBezierPath.bezierPathWithOvalInRect_(NSMakeRect(0, 0, size, size)).fill()
-        NSColor.whiteColor().setStroke()
-        mark = NSBezierPath.bezierPath()
-        mark.setLineWidth_(1.3)
-        if kind == "completed":
-            mark.moveToPoint_((size * 0.26, middle))
-            mark.lineToPoint_((size * 0.44, size * 0.30))
-            mark.lineToPoint_((size * 0.76, size * 0.68))
-        else:
-            mark.moveToPoint_((size * 0.30, size * 0.30))
-            mark.lineToPoint_((size * 0.70, size * 0.70))
-            mark.moveToPoint_((size * 0.70, size * 0.30))
-            mark.lineToPoint_((size * 0.30, size * 0.70))
-        mark.stroke()
-    else:
-        if kind == "backlog":
-            ring.setLineDash_count_phase_([1.6, 1.4], 2, 0.0)
-        ring.stroke()
-        if kind == "started":
-            # Part remplie : Linear la fait croître avec l'avancement, un demi suffit à dire
-            # « en cours » à cette taille.
-            pie = NSBezierPath.bezierPath()
-            pie.moveToPoint_((middle, middle))
-            pie.appendBezierPathWithArcWithCenter_radius_startAngle_endAngle_(
-                (middle, middle), size * 0.24, 90.0, -90.0
-            )
-            pie.closePath()
-            pie.fill()
-        elif kind == "triage":
-            NSBezierPath.bezierPathWithOvalInRect_(
-                NSMakeRect(middle - size * 0.12, middle - size * 0.12, size * 0.24, size * 0.24)
-            ).fill()
-    canvas.unlockFocus()
-    return canvas
-
-
-def _hex_colour(value: str):
-    """Couleur Linear (`#5e6ad2`) en NSColor, ou rien si la chaîne n'est pas lisible."""
-    raw = (value or "").lstrip("#")
-    if len(raw) != 6:
-        return None
-    try:
-        red, green, blue = (int(raw[index : index + 2], 16) / 255.0 for index in (0, 2, 4))
-    except ValueError:
-        return None
-    return NSColor.colorWithSRGBRed_green_blue_alpha_(red, green, blue, 1.0)
 
 
 def _chip_run(chips, tint: str | None = None):
@@ -832,6 +752,9 @@ class LinearTodoApp(NSObject):
         self.show_spinner = False
         self.menu_open = False
         self.footer_item = None
+        self.footer_rows, self.footer_active = [], []
+        self.shortcut_row = None
+        self.hover_timer = None
         self.shown = None
         self.help_window = None
         self.signature = ""
@@ -1290,6 +1213,7 @@ class LinearTodoApp(NSObject):
             complexity_left=self.client.complexity_left,
             error=None,
         )
+        self.push_map()
         self.stop_spinner()
 
     @objc.python_method
@@ -1305,6 +1229,7 @@ class LinearTodoApp(NSObject):
         if not snapshot.error:
             self.state.prune(snapshot.items)
             self.state.save()
+        self.push_map()
         self.stop_spinner()
 
     @objc.python_method
@@ -1506,9 +1431,36 @@ class LinearTodoApp(NSObject):
 
     def menuWillOpen_(self, menu):
         self.menu_open = True
+        # Sondage plutôt que zone de suivi : dans un menu déroulé, `mouseEntered:` n'arrive
+        # qu'une fois sur deux — c'est la leçon de la ligne à zones de SpacefillLocalhost.
+        if self.hover_timer is None:
+            self.hover_timer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(
+                shortcuts.POLL_SECONDS, self, "hover:", None, True
+            )
+            NSRunLoop.currentRunLoop().addTimer_forMode_(self.hover_timer, NSRunLoopCommonModes)
+
+    def hover_(self, timer):
+        """Suit la souris sur la barre rapide : pastille, curseur et infobulle."""
+        row = self.shortcut_row
+        if row is None:
+            return
+        zone = row.hovered()
+        row.set_hover(zone)
+        if zone is None:
+            return
+        row.setToolTip_(row.tip_of(zone))
+        # La boucle de suivi du menu repose la flèche dès qu'elle reprend la main : la main ne
+        # tient que réaffirmée à chaque tour.
+        (NSCursor.pointingHandCursor() if row.enabled_at(zone) else NSCursor.arrowCursor()).set()
 
     def menuDidClose_(self, menu):
         self.menu_open = False
+        if self.hover_timer is not None:
+            self.hover_timer.invalidate()
+            self.hover_timer = None
+        if self.shortcut_row is not None:
+            self.shortcut_row.set_hover(None)
+        NSCursor.arrowCursor().set()
         self.footer_item = None
         self.shown = None
         self.state.mark_seen(self.visible())
@@ -1561,6 +1513,67 @@ class LinearTodoApp(NSObject):
         if menu.numberOfItems():
             menu.addItem_(NSMenuItem.separatorItem())
         self.add_footer(menu, summarize(items)[0])
+        self.add_shortcuts(menu)
+
+    @objc.python_method
+    def add_shortcuts(self, menu) -> None:
+        """Barre d'accès rapide, épinglée en tête : les lignes du pied, en icônes et en abrégé.
+
+        Mêmes icônes, même ordre, même vocabulaire : ce sont les lignes du bas, réduites à ce
+        qui tient sur une ligne. Elles se partagent la largeur du menu en parts égales, et le
+        libellé de chacune est coupé net à la part suivante.
+
+        Posée en dernier, mais insérée en premier : c'est le seul moment où le menu connaît sa
+        largeur, celle de sa ligne la plus large.
+        """
+        entries = []
+        for item, symbol in self.footer_rows:
+            action = item.action()
+            entries.append(
+                (
+                    symbol,
+                    (str(item.attributedTitle().string()) if item.attributedTitle() else str(item.title())),
+                    ("popViewAs:" if item.hasSubmenu() else str(action) if action else None)
+                    if item.isEnabled()
+                    else None,
+                    getattr(NSColor, IDENTITY_TINT)() if item in self.footer_active else None,
+                    item in self.footer_active,
+                    str(item.toolTip() or "") or (str(item.title()) or "action"),
+                )
+            )
+        if not entries:
+            return
+        width = max(menu.size().width, SHORTCUT_MIN * len(entries))
+        row = shortcuts.Shortcuts.alloc().initWithFrame_(NSMakeRect(0, 0, width, shortcuts.ROW_HEIGHT))
+        row.load(entries)
+        row.on_pick = self.run_shortcut
+        holder = NSMenuItem.alloc().init()
+        holder.setView_(row)
+        menu.insertItem_atIndex_(holder, 0)
+        menu.insertItem_atIndex_(NSMenuItem.separatorItem(), 1)
+        self.shortcut_row = row
+
+    def popViewAs_(self, sender):
+        """Rouvre la liste des identités là où le pointeur se trouve."""
+        self.view_as_menu().popUpMenuPositioningItem_atLocation_inView_(None, NSEvent.mouseLocation(), None)
+
+    @objc.python_method
+    def run_shortcut(self, action: str) -> None:
+        """Referme le menu, puis fait ce que la ligne du bas aurait fait.
+
+        L'action est différée d'un tour de boucle. Agir dans la foulée du clic reviendrait à
+        ouvrir une fenêtre depuis la boucle modale du menu, qui n'a pas fini de se dérouler :
+        l'app se figeait, menu ouvert et clic sans effet. Le report la laisse se terminer.
+        """
+        menu = self.status_item.menu() if self.status_item is not None else None
+        if menu is not None:
+            menu.cancelTracking()
+        self.performSelector_withObject_afterDelay_("runDeferred:", action, 0.0)
+
+    def runDeferred_(self, action):
+        handler = getattr(self, str(action).replace(":", "_"), None)
+        if handler is not None:
+            handler(self)
 
     @objc.python_method
     def add_health(self, menu) -> None:
@@ -1821,27 +1834,56 @@ class LinearTodoApp(NSObject):
             self.add_info(
                 menu, "boîte de réception indisponible à la place d'un collègue", "exclamationmark.triangle"
             )
+        # Les lignes du pied sont retenues dans l'ordre : la barre d'accès rapide les reprend
+        # telles quelles, mêmes icônes, mêmes mots, même suite.
+        self.footer_rows, self.footer_active = [], []
         self.footer_item = self.add_action(menu, "", "refresh:", "r", "arrow.clockwise")
         self.footer_item.setAttributedTitle_(self.refresh_title(unread, summarize_warm(self.visible())))
+        self.footer_item.setToolTip_("Actualiser maintenant (⌘R)")
+        self.footer_rows.append((self.footer_item, "arrow.clockwise"))
         hidden = len(self.state.dismissed_here())
         if hidden:
-            self.add_action(
+            row = self.add_action(
                 menu, f"Réafficher {hidden} élément(s) masqué(s)", "restore:", symbol="arrow.uturn.backward"
             )
+            row.setToolTip_(f"Réafficher les {hidden} élément(s) masqué(s)")
+            self.footer_rows.append((row, "arrow.uturn.backward"))
         menu.addItem_(NSMenuItem.separatorItem())
-        self.add_view_as(menu)
+        self.footer_rows.append((self.add_view_as(menu), "eye"))
         if self.bundle_program():
             # Coche en fin de libellé : la colonne de gauche porte déjà l'icône de la ligne.
             started = launchagent.is_enabled()
-            self.add_action(menu, "Lancer au démarrage" + ("  ✓" if started else ""), "toggleLogin:", symbol="power")
-        self.add_action(menu, "Réglages et mode d'emploi", "openHelp:", symbol="gearshape")
-        self.add_action(menu, "Quitter LinearTodo", "quitApp:", "q", "xmark.circle")
+            row = self.add_action(
+                menu, "Lancer au démarrage" + ("  ✓" if started else ""), "toggleLogin:", symbol="power"
+            )
+            row.setToolTip_(
+                "Lancer au démarrage : activé, cliquer pour désactiver" if started
+                else "Lancer au démarrage : désactivé, cliquer pour activer"
+            )
+            self.footer_rows.append((row, "power"))
+            if started:
+                self.footer_active.append(row)
+        opened = mapwindow.living() is not None
+        row = self.add_action(menu, "Carte des tickets", "openMap:", "m", symbol="rectangle.3.group")
+        row.setToolTip_(
+            "Carte des tickets déjà ouverte : la mettre au premier plan" if opened
+            else "Ouvrir la carte des tickets (⌘M)"
+        )
+        self.footer_rows.append((row, "rectangle.3.group"))
+        if opened:
+            self.footer_active.append(row)
+        # Virgule pour les réglages, comme partout sur macOS. Les raccourcis clavier restent
+        # les seules commandes atteignables quand le menu est déroulé au-delà de l'écran.
+        row = self.add_action(menu, "Réglages et mode d'emploi", "openHelp:", ",", symbol="gearshape")
+        row.setToolTip_("Réglages et mode d'emploi (⌘,)")
+        self.footer_rows.append((row, "gearshape"))
+        row = self.add_action(menu, "Quitter LinearTodo", "quitApp:", "q", "xmark.circle")
+        row.setToolTip_("Quitter LinearTodo (⌘Q)")
+        self.footer_rows.append((row, "xmark.circle"))
 
     @objc.python_method
-    def add_view_as(self, menu) -> None:
-        """Sous-menu de bascule d'identité : lecture seule, avec la clé courante."""
-        parent = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Voir en tant que", None, "")
-        parent.setImage_(_chrome_symbol("eye"))
+    def view_as_menu(self):
+        """Le sous-menu des identités, monté à part : la barre rapide le rouvre tel quel."""
         submenu = NSMenu.alloc().init()
         mine = self.add_action(submenu, f"Moi (@{self.snapshot.viewer or '…'})", "viewAsSelf:")
         mine.setState_(0 if self.snapshot.impersonating else 1)
@@ -1862,8 +1904,18 @@ class LinearTodoApp(NSObject):
             entry.setRepresentedObject_(person.display_name)
             entry.setState_(1 if person.display_name == self.snapshot.identity else 0)
             entry.setImage_(_face(self.avatars, person.face, "person.crop.circle"))
+        return submenu
+
+    @objc.python_method
+    def add_view_as(self, menu) -> None:
+        """Sous-menu de bascule d'identité : lecture seule, avec la clé courante."""
+        parent = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Voir en tant que", None, "")
+        parent.setImage_(_chrome_symbol("eye"))
+        submenu = self.view_as_menu()
         parent.setSubmenu_(submenu)
+        parent.setToolTip_("Voir la boîte et les tickets d'un collègue")
         menu.addItem_(parent)
+        return parent
 
     @objc.python_method
     def bundle_program(self) -> str | None:
@@ -1959,6 +2011,31 @@ class LinearTodoApp(NSObject):
         self.clear_incident("inbox")
         self.start_fetch(spinner=True)
         return True, f"clé acceptée pour @{who.display_name}, dans le trousseau « {KEYCHAIN_SERVICE} »"
+
+    def openMap_(self, sender):
+        """Carte des tickets assignés : les cartes, ce qui les relie, et ce qui peut démarrer."""
+        self.map_window = mapwindow.panel(self.map_context())
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        self.map_window.window.makeKeyAndOrderFront_(None)
+
+    @objc.python_method
+    def push_map(self) -> None:
+        """Pousse la lecture du moment à la carte, si elle est ouverte.
+
+        Appelée aux deux issues d'un cycle : celle qui rapporte du neuf, et celle qui ne
+        rapporte rien. La seconde compte aussi — mes tickets ont leur propre cadence, et ils
+        peuvent avoir bougé sans que la boîte de réception ait changé.
+        """
+        if (carte := mapwindow.living()) is not None:
+            carte.refresh(self.map_context())
+
+    @objc.python_method
+    def map_context(self) -> dict:
+        return {
+            "issues": list(self.work.mine),
+            "identity": self.snapshot.identity or self.snapshot.viewer,
+            "avatars": self.avatars,
+        }
 
     def openHelp_(self, sender):
         """Réglages modifiables et mode d'emploi, avec les valeurs réelles de l'installation."""

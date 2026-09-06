@@ -64,7 +64,12 @@ FORM: tuple[tuple[str, tuple[tuple[str, str, str, str], ...]], ...] = (
         (
             ("teams", "Équipes", "clés d'équipe ; vide pour tout ce que la clé voit", "ENG, OPS"),
             ("view_as", "Voir en tant que", "handle ou e-mail Linear observé ; vide pour toi", "prenom"),
-            ("include_backlog", "Inclure le backlog", "sinon seuls triage, à faire et en cours comptent", ""),
+            (
+                "include_backlog",
+                "Backlog dans le menu",
+                "la carte des tickets le montre toujours ; ici, c'est la section du menu",
+                "",
+            ),
         ),
     ),
     (

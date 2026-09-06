@@ -38,15 +38,19 @@ INITIALS = "initials:"
 INITIALS_RATIO = 0.42
 
 
-def _colour(hexa: str):
-    """Couleur Linear (`#5e6ad2`) en NSColor, gris moyen si la chaîne n'est pas lisible."""
+def colour(hexa: str, fallback=None):
+    """Couleur Linear (`#5e6ad2`) en NSColor, ou `fallback` si la chaîne n'est pas lisible.
+
+    Publique parce que trois modules en ont besoin — les visages, le menu et la carte — et que
+    trois copies de six lignes finiraient par diverger.
+    """
     raw = (hexa or "").lstrip("#")
     if len(raw) != 6:
-        return NSColor.systemGrayColor()
+        return fallback
     try:
         red, green, blue = (int(raw[index : index + 2], 16) / 255.0 for index in (0, 2, 4))
     except ValueError:
-        return NSColor.systemGrayColor()
+        return fallback
     return NSColor.colorWithSRGBRed_green_blue_alpha_(red, green, blue, 1.0)
 
 
@@ -118,7 +122,7 @@ class Avatars:
         span = glyph.size()
         canvas = NSImage.alloc().initWithSize_(NSMakeSize(size, size))
         canvas.lockFocus()
-        _colour(tint).setFill()
+        colour(tint, NSColor.systemGrayColor()).setFill()
         NSBezierPath.bezierPathWithOvalInRect_(NSMakeRect(0, 0, size, size)).fill()
         glyph.drawAtPoint_(((size - span.width) / 2, (size - span.height) / 2))
         canvas.unlockFocus()
