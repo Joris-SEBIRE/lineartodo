@@ -204,10 +204,16 @@ chaque cycle la met à jour, sans la recadrer sous les yeux.
 
 **Une carte.** En haut : le visage du créateur, le numéro, l'état — avec le rond de Linear et sa
 couleur — et la priorité, l'icône de Linear redessinée à ses cotes, dans une couleur qui monte
-avec l'urgence. En dessous, ce qui retient le ticket : « bloqué ×N » ou « démarrable », puis son
+avec l'urgence. En dessous, ce qui retient le ticket : « bloqué ×N » ou « autonome », puis son
 étiquette de type quand Linear en pose une — **Bug**, **Feature request**. Puis le titre, sur
 trois lignes au plus. En bas : le visage de l'assigné, les **pull requests** avec leur numéro et
 la couleur GitHub de leur état, et le temps écoulé depuis le dernier changement d'état.
+
+**« autonome » et « bloqué » ne regardent pas l'état du ticket**, seulement ce qui l'attend. Bloqué
+tant qu'un autre ticket le retient, qu'il soit à faire, en cours ou en revue. Autonome quand rien ne
+le retient et qu'aucun sous-ticket ouvert ne lui reste — un parent ne se clôt pas avant ses enfants.
+Entre les deux, une carte sans gélule : elle attend ses propres sous-tickets. Sur un périmètre de
+vingt-sept tickets, ça donne dix autonomes, treize bloqués et quatre parents en attente.
 
 **Le filet de gauche est rouge pour un bug**, et rien d'autre : c'est la seule chose qu'on veut
 repérer de loin, sans lire. Le reste se lit de près, sur les gélules.

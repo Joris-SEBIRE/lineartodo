@@ -309,15 +309,20 @@ def build(issues: list) -> Scene:
         identifier: max(0, len(issue.children) - shown.get(identifier, 0))
         for identifier, issue in known.items()
     }
+    # Sous-tickets encore ouverts, ceux de la carte comme ceux qu'on ne voit pas : un parent
+    # les attend pour se clore, même si aucune relation de blocage ne le dit.
+    open_children: dict = {}
+    for identifier, issue in known.items():
+        inside = sum(1 for other in known.values() if other.parent == identifier and other.open)
+        outside = sum(1 for link in issue.children if link.other not in known and link.open)
+        open_children[identifier] = inside + outside
 
     for identifier, issue in known.items():
         offspring = shown.get(identifier, 0) + hidden.get(identifier, 0)
-        # Démarrable : rien ne le retient et il n'a pas encore commencé.
-        free = (
-            not issue.parent
-            and not blockers.get(identifier)
-            and issue.state_type in ("backlog", "unstarted", "triage")
-        )
+        # Autonome : rien ne l'attend. Ni ticket qui le bloque, ni sous-ticket ouvert — un
+        # parent ne se clôt pas avant ses enfants. L'état n'entre pas dans le calcul : qu'il
+        # soit à faire, en cours ou en revue, la question est la même, peut-il avancer seul.
+        free = not blockers.get(identifier) and not open_children.get(identifier)
         scene.cards.append(
             _card_of(issue, blockers.get(identifier, 0), shown.get(identifier, 0), offspring, free)
         )

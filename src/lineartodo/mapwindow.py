@@ -138,9 +138,9 @@ _LEGEND = (
     ("trait", "parent → enfant", NSColor.tertiaryLabelColor, None),
     ("trait", "projet → ticket", NSColor.secondaryLabelColor, [7.0, 5.0]),
     ("trait", "bloque", NSColor.systemRedColor, [4.0, 4.0]),
-    ("filet", "bloqué", NSColor.systemRedColor, None),
-    ("filet", "démarrable", NSColor.systemGreenColor, None),
-    ("filet", "ni l'un ni l'autre", NSColor.quaternaryLabelColor, None),
+    ("filet", "bug", NSColor.systemRedColor, None),
+    ("gélule", "autonome : rien ne l'attend", NSColor.systemGreenColor, None),
+    ("gélule", "bloqué : il attend un autre ticket", NSColor.systemRedColor, None),
 )
 
 ROUTE_STYLE = {
@@ -800,7 +800,7 @@ class Canvas(NSView):
             cursor += _chip(cursor, top, text, tint, tinted_symbol("hand.raised.fill", CHIP_GLYPH, tint)) + CHIP_GAP
         elif card.free:
             tint = NSColor.systemGreenColor()
-            cursor += _chip(cursor, top, "démarrable", tint,
+            cursor += _chip(cursor, top, "autonome", tint,
                             tinted_symbol("play.fill", CHIP_GLYPH, tint)) + CHIP_GAP
         if card.type_label:
             tint = hex_colour(card.type_colour) or NSColor.secondaryLabelColor()
@@ -952,7 +952,13 @@ class Legend(NSView):
         cursor = BAR_INSET
         middle = self.bounds().size.height / 2
         for shape, label, tint, dash in _LEGEND:
-            if shape == "trait":
+            if shape == "gélule":
+                (tint() if callable(tint) else tint).colorWithAlphaComponent_(0.28).setFill()
+                NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                    NSMakeRect(cursor, middle - 5.0, 14.0, 10.0), 5.0, 5.0
+                ).fill()
+                cursor += 19.0
+            elif shape == "trait":
                 line = NSBezierPath.bezierPath()
                 line.moveToPoint_(NSMakePoint(cursor, middle))
                 line.lineToPoint_(NSMakePoint(cursor + 22.0, middle))

@@ -106,7 +106,7 @@ CHROME_LIFT = 1.75
 LEFT_MARGIN = 6.0
 GLYPH_CHIP = 10.0
 # Largeur minimale d'une part de la barre d'accès rapide : en deçà, le libellé ne dit plus rien.
-SHORTCUT_MIN = 92.0
+SHORTCUT_MIN = 84.0
 # Étiquette de texte (« en retard ») et pastille de comptage : même primitive, deux géométries.
 TAG_HEIGHT, TAG_RADIUS, TAG_PADDING = 13.0, 3.0, 10.0
 # Pastille de comptage : le rayon vaut la moitié de la hauteur, donc un chiffre seul y tient

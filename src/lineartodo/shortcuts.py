@@ -68,9 +68,20 @@ def _glyph(name: str, tint):
     La couleur résolue entre dans la clé du cache : sans elle, un passage clair/sombre garderait
     l'ancienne teinte jusqu'au redémarrage.
     """
-    resolved = tint.colorUsingColorSpace_(NSColorSpace.sRGBColorSpace()) or tint
-    key = (name, round(resolved.redComponent(), 3), round(resolved.greenComponent(), 3),
-           round(resolved.blueComponent(), 3), round(resolved.alphaComponent(), 3))
+    resolved = tint.colorUsingColorSpace_(NSColorSpace.sRGBColorSpace())
+    # Une couleur de catalogue non résolue n'a pas de composantes : les lui demander lèverait
+    # ici, dans la boucle du menu, et gèlerait l'app sans un mot. Son nom fait alors la clé.
+    key = (
+        (name, str(tint))
+        if resolved is None
+        else (
+            name,
+            round(resolved.redComponent(), 3),
+            round(resolved.greenComponent(), 3),
+            round(resolved.blueComponent(), 3),
+            round(resolved.alphaComponent(), 3),
+        )
+    )
     if key not in _GLYPHS:
         symbol = NSImage.imageWithSystemSymbolName_accessibilityDescription_(name, None)
         if symbol is None:
