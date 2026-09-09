@@ -2033,6 +2033,7 @@ class LinearTodoApp(NSObject):
     def map_context(self) -> dict:
         return {
             "issues": list(self.work.mine),
+            "papers": list(self.work.papers),
             "identity": self.snapshot.identity or self.snapshot.viewer,
             "avatars": self.avatars,
         }

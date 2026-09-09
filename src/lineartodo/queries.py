@@ -141,9 +141,23 @@ fragment Brief on Issue {
 # Mes tickets ouverts. Une seule recherche : ce qui m'est assigné et qui n'est pas clos.
 WORK_QUERY = (
     """
-query Work($mine: IssueFilter!, $n: Int!) {
+query Work($mine: IssueFilter!, $assigned: IssueFilter!, $n: Int!) {
   mine: issues(filter: $mine, first: $n, orderBy: updatedAt) {
     pageInfo { hasNextPage } nodes { ...Task }
+  }
+  # Les documents structurants : ceux qui pendent à un de mes tickets, ou au projet d'un de mes
+  # tickets. Le filtre imbriqué ne prend pas de clause d'état — avec elle, Linear ne rend rien —
+  # d'où `$assigned`, qui ne dit que « assigné à moi ».
+  papers: documents(
+    first: 30, orderBy: updatedAt
+    filter: { or: [{ issue: $assigned }, { project: { issues: { some: $assigned } } }] }
+  ) {
+    nodes {
+      id title url updatedAt
+      creator { ...Who }
+      issue { identifier }
+      project { id }
+    }
   }
 }
 """

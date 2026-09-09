@@ -273,6 +273,13 @@ le retient et qu'aucun sous-ticket ouvert ne lui reste — un parent ne se clôt
 Entre les deux, une carte sans gélule : elle attend ses propres sous-tickets. Sur un périmètre de \
 vingt-sept tickets, ça donne dix autonomes, treize bloqués et quatre parents en attente.
 
+**Les documents structurants sont sur la carte.** Une note technique, une spécification, un \
+compte rendu : dès qu'un document Linear pend à un de tes tickets ou au projet d'un de tes \
+tickets, il prend une carte à lui — fond indigo, mention « DOCUMENT », son titre et la date de sa \
+dernière modification — posée juste à gauche de ce qu'elle documente, reliée par une flèche en \
+pointillés fins marquée « documente ». Un clic l'ouvre dans Linear. Une note dont la cible n'est \
+pas sur la carte n'est pas dessinée : elle n'apprendrait rien.
+
 **Le filet de gauche est rouge pour un bug**, et rien d'autre : c'est la seule chose qu'on veut \
 repérer de loin, sans lire. Le reste se lit de près, sur les gélules.
 

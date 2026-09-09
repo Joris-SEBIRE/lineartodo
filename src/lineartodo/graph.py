@@ -294,7 +294,21 @@ def _project_card(key: str, name: str, colour: str) -> Card:
     return Card(key=key, kind="projet", title=name, colour=colour, height=SMALL_HEIGHT)
 
 
-def build(issues: list) -> Scene:
+def _paper_card(paper) -> Card:
+    """Carte d'un document : ce qui explique le travail, à côté du travail."""
+    return Card(
+        key=f"doc:{paper.id}",
+        kind="document",
+        title=paper.title,
+        creator=paper.author,
+        creator_face=paper.author_face,
+        moved_at=paper.updated_at,
+        url=paper.url,
+        height=SMALL_HEIGHT,
+    )
+
+
+def build(issues: list, papers: list | None = None) -> Scene:
     """Scène complète : les cartes et les liens typés, sans coordonnées."""
     known = {issue.identifier: issue for issue in issues if issue.identifier}
     scene = Scene()
@@ -338,6 +352,14 @@ def build(issues: list) -> Scene:
     for issue in known.values():
         if issue.project_id and not scene.card(f"projet:{issue.project_id}"):
             scene.cards.append(_project_card(f"projet:{issue.project_id}", issue.project, issue.project_colour))
+    for paper in papers or []:
+        # Un document ne se dessine que s'il documente quelque chose qui est là : sur une carte
+        # de tickets, une note orpheline n'apprendrait rien.
+        target = paper.issue if scene.card(paper.issue) else f"projet:{paper.project_id}"
+        if not scene.card(target):
+            continue
+        scene.cards.append(_paper_card(paper))
+        scene.links.append(Link(f"doc:{paper.id}", target, "document"))
     return scene
 
 
@@ -381,6 +403,13 @@ def _lanes_of(issues: list, scene: Scene) -> list:
         if card.kind == "fantôme":
             child = next((key for key in homes if known[key].parent == card.key), "")
             homes[card.key] = homes.get(child, LOOSE_LANE)
+    for link in scene.links:
+        if link.kind == "document":
+            # Une note pendue à un projet rejoint le couloir de ce projet, dont la clé est celle
+            # de sa carte ; pendue à un ticket, elle suit le couloir de ce ticket.
+            homes[link.source] = (
+                link.target if link.target.startswith("projet:") else homes.get(link.target, LOOSE_LANE)
+            )
 
     lanes: dict = {}
     members: dict = {}
@@ -403,7 +432,12 @@ def _lanes_of(issues: list, scene: Scene) -> list:
 
 
 def _forest(keys: list, issues: dict, scene: Scene) -> tuple:
-    """Racines du couloir et, sous chacune, ses descendants — les arbres à poser côte à côte."""
+    """Racines du couloir et, sous chacune, ses descendants — les arbres à poser côte à côte.
+
+    Les documents en sont exclus : ils ne descendent de rien et ne portent rien, ils se rangent
+    ensuite à côté de ce qu'ils documentent.
+    """
+    keys = [key for key in keys if not key.startswith("doc:")]
     inside = set(keys)
     children: dict = {}
     roots: list = []
@@ -421,6 +455,30 @@ def _forest(keys: list, issues: dict, scene: Scene) -> tuple:
     for parent, brood in children.items():
         children[parent] = _feasible(brood, issues)
     return _feasible(roots, issues), children
+
+
+def _tuck(scene: Scene, members: list, links: list) -> None:
+    """Glisse chaque document dans la case à gauche de ce qu'il documente.
+
+    Si cette case est prise, tout ce qui est à droite dans le couloir recule d'une colonne : la
+    grille reste sans trou ni doublon, et la flèche du document reste courte.
+    """
+    inside = set(members)
+    for link in links:
+        paper, target = scene.card(link.source), scene.card(link.target)
+        if paper is None or target is None or link.source not in inside:
+            continue
+        taken = {
+            (scene.card(key).col, scene.card(key).row)
+            for key in members
+            if scene.card(key) is not None and key != link.source
+        }
+        if target.col == 0 or (target.col - 1, target.row) in taken:
+            for key in members:
+                card = scene.card(key)
+                if card is not None and key != link.source and card.col >= target.col:
+                    card.col += 1
+        paper.col, paper.row = target.col - 1, target.row
 
 
 def _rows_of(keys, scene: Scene, floor: int) -> int:
@@ -492,6 +550,7 @@ def place(issues: list, scene: Scene) -> Scene:
                     card.row += floor - line
                 line, col = floor, 0
             col += span
+        _tuck(scene, members, [link for link in scene.links if link.kind == "document"])
         lane.keys = tuple(members)
         lane.rows = (first, _rows_of(members, scene, first))
         scene.lanes.append(lane)
@@ -628,7 +687,7 @@ def wire(scene: Scene) -> Scene:
                 points=points,
                 source=link.source,
                 target=link.target,
-                label="bloque" if link.kind == "bloque" else "",
+                label={"bloque": "bloque", "document": "documente"}.get(link.kind, ""),
                 colour=source.colour if link.kind == "projet" else "",
                 box=(min(xs), min(ys), max(xs), max(ys)),
             )
@@ -685,8 +744,8 @@ def _tracks(scene: Scene) -> None:
         route.box = (min(xs), min(ys), max(xs), max(ys))
 
 
-def draw_map(issues: list) -> Scene:
+def draw_map(issues: list, papers: list | None = None) -> Scene:
     """La scène prête à dessiner : cartes sur la grille, flèches routées, couloirs mesurés."""
-    scene = wire(place(issues, build(issues)))
+    scene = wire(place(issues, build(issues, papers)))
     _tracks(scene)
     return scene

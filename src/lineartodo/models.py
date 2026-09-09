@@ -204,6 +204,24 @@ class Pull:
 
 
 @dataclass(frozen=True)
+class Paper:
+    """Document Linear : note technique, spécification, compte rendu.
+
+    Il pend à un ticket ou à un projet — Linear sait aussi les rattacher à une équipe, un cycle
+    ou une initiative, mais rien de tout cela n'a de place sur une carte de tickets.
+    """
+
+    id: str
+    title: str
+    url: str
+    issue: str = ""
+    project_id: str = ""
+    author: str = ""
+    author_face: str = ""
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class Relation:
     """Lien entre deux tickets. `blocks` est le seul qui porte une contrainte de travail."""
 
@@ -402,6 +420,8 @@ class Work:
 
     mine: list[Issue] = field(default_factory=list)
     done: list[Issue] = field(default_factory=list)
+    # Documents rattachés à ces tickets ou à leurs projets : la carte les dessine à côté.
+    papers: list[Paper] = field(default_factory=list)
 
     def all(self) -> list[Issue]:
         return [*self.mine, *self.done]

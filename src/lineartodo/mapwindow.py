@@ -141,13 +141,18 @@ _LEGEND = (
     ("filet", "bug", NSColor.systemRedColor, None),
     ("gélule", "autonome : rien ne l'attend", NSColor.systemGreenColor, None),
     ("gélule", "bloqué : il attend un autre ticket", NSColor.systemRedColor, None),
+    ("trait", "documente", lambda: hex_colour(PAPER_TINT), [2.0, 3.0]),
 )
+
+# Couleur des documents : l'indigo de Linear, celui de sa marque.
+PAPER_TINT = "#5e6ad2"
 
 ROUTE_STYLE = {
     # famille : (épaisseur, pointillés, teinte, tête de flèche)
     "parent": (1.7, None, "tertiaryLabelColor", True),
     "projet": (1.5, [7.0, 5.0], "", True),
     "bloque": (1.5, [4.0, 4.0], "systemRedColor", True),
+    "document": (1.4, [2.0, 3.0], "", True),
 }
 
 
@@ -654,7 +659,9 @@ class Canvas(NSView):
                 continue
             thick, dash, name, head = ROUTE_STYLE.get(route.kind, ROUTE_STYLE["parent"])
             tint = (hex_colour(route.colour) if route.colour else None) or (
-                getattr(NSColor, name)() if name else NSColor.tertiaryLabelColor()
+                getattr(NSColor, name)()
+                if name
+                else (hex_colour(PAPER_TINT) if route.kind == "document" else NSColor.tertiaryLabelColor())
             )
             if self.route is not None:
                 # Une flèche est désignée : elle s'épaissit, les autres s'effacent, et les deux
@@ -716,6 +723,9 @@ class Canvas(NSView):
             _write(card.title, _font(14.0, NSFontWeightSemibold), NSColor.labelColor(),
                    NSMakeRect(card.x + 18.0, card.y + 34.0, card.width - 36.0, 22.0))
             return
+        if card.kind == "document":
+            self.draw_paper(card, path)
+            return
         NSColor.controlBackgroundColor().setFill()
         path.fill()
         if card.kind == "fantôme":
@@ -763,6 +773,38 @@ class Canvas(NSView):
             _write(line, title_font, NSColor.labelColor(),
                    NSMakeRect(left, card.y + 62.0 + index * 17.0, inner, 17.0))
         self.draw_foot(card, left, inner)
+
+    @objc.python_method
+    def draw_paper(self, card, path) -> None:
+        """Carte d'un document : ce qui explique le travail, dans l'indigo de Linear.
+
+        Même largeur qu'un ticket pour rester dans la grille, mais une forme à elle : fond
+        teinté, liseré plein, et pas de gélules — un document n'a ni état ni priorité.
+        """
+        tint = hex_colour(PAPER_TINT) or NSColor.systemIndigoColor()
+        tint.colorWithAlphaComponent_(0.10).setFill()
+        path.fill()
+        tint.colorWithAlphaComponent_(0.45 if card.key != self.hovered else 0.9).setStroke()
+        path.setLineWidth_(2.0 if card.key == self.hovered else 1.3)
+        path.stroke()
+        left, inner = card.x + 18.0, card.width - 36.0
+        glyph = tinted_symbol("doc.text.fill", CHIP_GLYPH, tint)
+        if glyph is not None:
+            _image(glyph, NSMakeRect(left, card.y + 13.0, CHIP_GLYPH, CHIP_GLYPH))
+        _write("DOCUMENT", _font(9.5, NSFontWeightBold), tint,
+               NSMakeRect(left + CHIP_GLYPH + 6.0, card.y + 12.0, 120.0, 13.0))
+        age = since(card.moved_at) if card.moved_at else ""
+        if age:
+            font = _font(10.0, NSFontWeightMedium)
+            width = _width(age, font) + 4.0
+            _write(age, font, NSColor.tertiaryLabelColor(),
+                   NSMakeRect(card.x + card.width - 18.0 - width, card.y + 12.0, width, 13.0))
+        if self.scale < DETAIL:
+            return
+        title_font = _font(12.5, NSFontWeightSemibold)
+        for index, line in enumerate(_lines(card.title, title_font, inner, 2)):
+            _write(line, title_font, NSColor.labelColor(),
+                   NSMakeRect(left, card.y + 32.0 + index * 16.0, inner, 16.0))
 
     @objc.python_method
     def draw_head(self, card, left: float, inner: float) -> None:
@@ -999,7 +1041,7 @@ class Map(NSObject):
         """Reprend les tickets du moment : à chaque ouverture, et à chaque lecture terminée."""
         issues = list(context.get("issues") or [])
         self.avatars = context.get("avatars") or self.avatars
-        scene = draw_map(issues)
+        scene = draw_map(issues, context.get("papers") or [])
         self.canvas.show(scene, self.avatars)
         who = context.get("identity") or ""
         cards = sum(1 for card in scene.cards if card.kind == "ticket")

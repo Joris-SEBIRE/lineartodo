@@ -17,6 +17,7 @@ from .models import (
     Issue,
     Note,
     OPEN_STATES,
+    Paper,
     Person,
     Pull,
     Relation,
@@ -251,6 +252,23 @@ def _moved_at(node: dict, started, triaged, created):
     return started or triaged or created
 
 
+def _paper(node: dict | None) -> Paper | None:
+    """Un document Linear, réduit à ce qui se dessine et à ce qu'il documente."""
+    if not node or not node.get("id"):
+        return None
+    author = _person(node.get("creator"))
+    return Paper(
+        id=node["id"],
+        title=(node.get("title") or "sans titre").strip(),
+        url=node.get("url") or "",
+        issue=((node.get("issue") or {}).get("identifier") or ""),
+        project_id=((node.get("project") or {}).get("id") or ""),
+        author=author.display_name if author else "",
+        author_face=author.face if author else "",
+        updated_at=parse_ts(node.get("updatedAt")),
+    )
+
+
 def _issue(node: dict | None, source: str = "") -> Issue | None:
     if not node:
         return None
@@ -402,6 +420,9 @@ def work_variables(cfg: Config, user_id: str | None, rows: int = 40) -> dict:
     return {
         "n": max(5, min(rows, 100)),
         "mine": _scoped(cfg, {"assignee": who_filter(user_id), "state": {"type": {"in": list(OPEN_STATES)}}}),
+        # Les documents se filtrent sur un ticket imbriqué, et ce filtre-là ne supporte pas la
+        # clause d'état : avec elle, Linear ne rend rien. On ne lui demande donc que l'assigné.
+        "assigned": _scoped(cfg, {"assignee": who_filter(user_id)}),
     }
 
 
@@ -623,8 +644,13 @@ class Linear:
         data = self.graphql(WORK_QUERY, variables, "mes tickets")
         block = data.get("mine") or {}
         found = [issue for issue in (_issue(node, "mine") for node in (block.get("nodes") or [])) if issue]
+        papers = [
+            paper
+            for paper in (_paper(node) for node in ((data.get("papers") or {}).get("nodes") or []))
+            if paper
+        ]
         truncated = ["mes tickets : la liste est écrêtée"] if (block.get("pageInfo") or {}).get("hasNextPage") else []
-        return Work(mine=found), truncated
+        return Work(mine=found, papers=papers), truncated
 
     def fetch_done(self, user_id: str | None) -> tuple[list[Issue], list[str]]:
         """Mes tickets clos, avec l'historique d'états qui dit par quelle main."""
