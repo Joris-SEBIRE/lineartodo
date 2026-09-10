@@ -122,10 +122,17 @@ suivants.
 - **⌘** maintenu : « Copier le lien ». **⌃** maintenu : « Copier l'identifiant » (`ENG-142`), de
   quoi nommer une branche.
 - **⌘R** : actualise tout de suite.
+- Un ticket ne paraît qu'une fois, dans sa catégorie la plus forte — celle qui vient le plus
+  haut dans le menu. Un ticket notifié, qui t'est assigné et dont la notification est rangée
+  est *un* ticket : il se lit dans la boîte de réception, pas trois fois de suite.
 - Le point ● marque ce qui est arrivé depuis la dernière ouverture du menu.
 - Dans un titre de section, un compte suivi d'un `+` est un plancher : la liste est écrêtée. La
   pastille de la barre, elle, ne porte jamais de `+` : elle donne le nombre. Quand Linear annonce
   plus de non-lues que sa boîte n'en a servi, le menu le chiffre en bas.
+- Une ligne qui compte n'est jamais escamotée par l'écrêtage. La boîte de réception n'est donc pas
+  écrêtée du tout, puisque chacune de ses lignes compte. Seules les sections informatives sont
+  bornées, et si l'une de leurs lignes compte encore, elle est rattrapée en fin de section, sous
+  la ligne « N de plus, non affichés ». L'ordre des autres ne bouge pas.
 - Lire n'est pas traiter : ouvrir une notification la fait passer du rouge au bleu, elle reste
   à faire. C'est **ranger** la notification dans Linear qui l'éteint — l'app ne le fait jamais à
   ta place, elle le lit au cycle suivant.

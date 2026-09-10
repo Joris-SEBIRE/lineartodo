@@ -593,7 +593,7 @@ def _chip_run(chips, tint: str | None = None):
     grey = NSColor.secondaryLabelColor()
     accent = getattr(NSColor, tint)() if tint else None
     run = NSMutableAttributedString.alloc().init()
-    for name, label, *own in chips:
+    for name, label in chips:
         if name.startswith(STATE_MARK):
             # L'état du ticket garde la couleur que Linear lui donne : elle ne dépend ni de la
             # ligne ni de l'app.
@@ -606,8 +606,8 @@ def _chip_run(chips, tint: str | None = None):
         image = _symbol(name, GLYPH_CHIP)
         if image is None:
             continue
-        strong = bool(own) or bool(label and accent is not None)
-        colour = getattr(NSColor, own[0])() if own else (accent if strong else grey)
+        strong = bool(label and accent is not None)
+        colour = accent if strong else grey
         tinted = image.imageWithSymbolConfiguration_(
             NSImageSymbolConfiguration.configurationWithPaletteColors_([colour])
         )
@@ -1639,40 +1639,40 @@ class LinearTodoApp(NSObject):
         group = GROUPS[kind]
         if menu.numberOfItems():
             menu.addItem_(NSMenuItem.separatorItem())
-        ceiling = self.rows_for(kind)
-        # L'ordre de la section ne bouge pas : c'est sa chronologie qui la rend lisible. Un
-        # compte évincé par l'écrêtage n'est donc pas remonté, il est reporté sur la ligne
-        # d'écrêtage, où il continue de s'additionner jusqu'au badge.
-        shown, hidden = items[:ceiling], items[ceiling:]
+        # L'ordre de la section ne bouge pas : c'est sa chronologie qui la rend lisible. Une
+        # section d'action n'est pas écrêtée : chacune de ses lignes compte dans le badge, et un
+        # compte sans ligne à cliquer ne pourrait plus s'éteindre. Une section informative, elle,
+        # est bornée pour de bon — mais si l'une de ses lignes compte quand même, elle est
+        # rattrapée en fin de section, après la ligne d'écrêtage, plutôt que d'être escamotée.
+        if group.is_action:
+            shown, rescued, hidden = items, [], []
+        else:
+            ceiling = self.rows_for(kind)
+            shown, rest = items[:ceiling], items[ceiling:]
+            rescued = [item for item in rest if item.weight]
+            hidden = [item for item in rest if not item.weight]
+        listed = shown + rescued
         # Le compte porte sur ce qui est affiché, et un « + » dit qu'il en reste derrière : un
         # nombre à son plafond ne le dit pas de lui-même. Les sections de notifications
         # comptent leurs non-lues, pas leurs lignes, parce que c'est ce total qui monte
         # jusqu'au badge.
-        total = sum(item.weight for item in shown) if group.is_action else len(shown)
+        total = sum(item.weight for item in listed) if group.is_action else len(listed)
         header = NSMenuItem.alloc().init()
         # La fenêtre reste en minuscules : seul le libellé est capitalisé, une unité criée se
         # lit mal.
         window = self.window_of(kind)
         title = group.label.upper() + (f" · {window}" if window else "")
-        header.setAttributedTitle_(_header(f"{title} ({_capped(total, len(items) > ceiling)})"))
+        header.setAttributedTitle_(_header(f"{title} ({_capped(total, bool(hidden))})"))
         header.setImage_(_chrome_symbol(group.symbol, IDENTITY_TINT))
         header.setEnabled_(False)
         menu.addItem_(header)
         for item in shown:
             self.add_row(menu, item)
         if hidden:
-            # Le reste des badges est porté par cette ligne, chaque nombre dans la couleur du
-            # badge auquel il va : la somme des pastilles visibles, celle-ci comprise, vaut
-            # toujours le badge, sans avoir à toucher à l'ordre des lignes.
-            left = tuple(
-                (group.symbol, str(count), tint)
-                for count, tint in (
-                    (sum(item.weight for item in hidden if not item.warm), "systemRedColor"),
-                    (sum(item.weight for item in hidden if item.warm), SECOND_TINT),
-                )
-                if count
-            )
-            self.add_info(menu, f"{len(hidden)} de plus, non affichés", "ellipsis", left)
+            self.add_info(menu, f"{len(hidden)} de plus, non affichés", "ellipsis")
+        # Les rattrapées ferment la section : hors de la chronologie, mais devant les yeux.
+        for item in rescued:
+            self.add_row(menu, item)
 
     @objc.python_method
     def add_row(self, menu, item: Item) -> None:
@@ -1744,15 +1744,9 @@ class LinearTodoApp(NSObject):
         return entry
 
     @objc.python_method
-    def add_info(self, menu, text: str, symbol: str = "", chips=()):
+    def add_info(self, menu, text: str, symbol: str = ""):
         info = NSMenuItem.alloc().init()
-        title = NSMutableAttributedString.alloc().initWithAttributedString_(
-            _grey(text + ("   " if chips else ""))
-        )
-        if chips:
-            # Chaque pastille nomme sa propre couleur, donc pas de teinte de ligne à passer.
-            title.appendAttributedString_(_chip_run(chips))
-        info.setAttributedTitle_(title)
+        info.setAttributedTitle_(_grey(text))
         if symbol:
             info.setImage_(_chrome_symbol(symbol))
         info.setEnabled_(False)

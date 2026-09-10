@@ -154,7 +154,8 @@ ancien. Une ligne par sujet, comme dans Linear
 - **Tickets qui me sont assignés** : ce qui n'est pas clos, du plus récemment bougé au plus \
 dormant. Le visage est celui du créateur — l'assigné, c'est moi, il n'apprend rien
 - **Notifications archivées** : celles qui ont été rangées dans Linear, ou dont le ticket est \
-parti à la corbeille. Même fenêtre de lecture, même tri
+parti à la corbeille. Même fenêtre de lecture, même tri. Un ticket déjà porté plus haut n'y \
+reparaît pas : c'est la règle d'une ligne par sujet
 - **Tickets clos ou supprimés** : terminés, annulés, marqués en doublon ou supprimés, et par \
 quelle main
 
@@ -195,6 +196,13 @@ pastille de la barre ne porte jamais de `+` : à sa taille il ne se lirait pas, 
 allumé en permanence dès qu'une source est écrêtée. Quand Linear annonce plus de non-lues que sa \
 boîte n'en a servi, le menu chiffre l'écart en bas ; les notifications sur ticket supprimé en \
 sont retirées, sans quoi l'écart ne mènerait à rien
+- un ticket ne paraît qu'une fois, dans sa catégorie la plus forte, celle qui vient le plus \
+haut dans le menu : notifié, assigné et rangé, c'est un seul ticket et c'est sa notification \
+qu'on lit d'abord
+- une ligne qui compte n'est jamais escamotée par l'écrêtage : la boîte de réception n'est donc \
+pas écrêtée, chacune de ses lignes comptant dans la pastille, et un compte que plus aucune ligne \
+ne porte ne pourrait plus s'éteindre. Les sections informatives, elles, sont bornées ; si l'une \
+de leurs lignes compte encore, elle est rattrapée en fin de section plutôt qu'escamotée
 - le compteur de Linear additionne des notifications, la pastille compte des sujets : trois \
 commentaires sur un même ticket font 3 chez lui et 1 ici, exactement comme sa boîte n'affiche \
 qu'une ligne

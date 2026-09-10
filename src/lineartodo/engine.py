@@ -361,12 +361,22 @@ def build_items(
 
 
 def _dedupe(items: list[Item]) -> list[Item]:
+    """Une seule ligne par sujet, celle de sa catégorie la plus forte.
+
+    La liste arrive triée dans l'ordre des sections, donc la première rencontrée est la plus
+    importante. Un ticket notifié, qui m'est assigné et dont la notification est rangée n'est
+    pas trois choses : c'est un ticket, et c'est la notification qu'on lit d'abord.
+
+    La clé est le sujet, pas la ligne : `id` vaut « catégorie:sujet », et c'est justement la
+    catégorie qu'on veut voir varier.
+    """
     seen: set[str] = set()
     unique: list[Item] = []
     for item in items:
-        if item.id in seen:
+        subject = item.id.split(":", 1)[-1]
+        if subject in seen:
             continue
-        seen.add(item.id)
+        seen.add(subject)
         unique.append(item)
     return unique
 
