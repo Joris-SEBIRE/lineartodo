@@ -103,6 +103,7 @@ class Card:
     # `children` les compte tous, `shown` ceux qui sont sur la carte.
     free: bool = False
     blocked: int = 0
+    arbitrations: int = 0
     children: int = 0
     shown: int = 0
     col: int = 0
@@ -267,6 +268,7 @@ def _card_of(issue: Issue, blocked: int, shown: int, offspring: int, free: bool)
         type_symbol=symbol,
         free=free,
         blocked=blocked,
+        arbitrations=issue.arbitrations,
         children=offspring,
         shown=shown,
     )
@@ -333,9 +335,10 @@ def build(issues: list, papers: list | None = None) -> Scene:
 
     for identifier, issue in known.items():
         offspring = shown.get(identifier, 0) + hidden.get(identifier, 0)
-        # Autonome : rien ne l'attend. Ni ticket qui le bloque, ni sous-ticket ouvert — un
-        # parent ne se clôt pas avant ses enfants. L'état n'entre pas dans le calcul : qu'il
-        # soit à faire, en cours ou en revue, la question est la même, peut-il avancer seul.
+        # Autonome : aucun ticket ne le retient. Ni blocage, ni sous-ticket ouvert — un parent
+        # ne se clôt pas avant ses enfants. Un arbitrage en attente ne l'enlève pas : il dit
+        # justement que le ticket partira dès que la réponse tombe. L'état n'entre pas dans le
+        # calcul : à faire, en cours ou en revue, la question reste la même.
         free = not blockers.get(identifier) and not open_children.get(identifier)
         scene.cards.append(
             _card_of(issue, blockers.get(identifier, 0), shown.get(identifier, 0), offspring, free)

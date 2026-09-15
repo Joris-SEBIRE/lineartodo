@@ -62,7 +62,7 @@ fragment Word on Comment {
 
 TASK = """
 fragment Task on Issue {
-  id identifier title url priority estimate dueDate trashed branchName
+  id identifier title description url priority estimate dueDate trashed branchName
   createdAt updatedAt startedAt triagedAt completedAt canceledAt snoozedUntilAt slaBreachesAt
   state { name type color }
   team { key name }

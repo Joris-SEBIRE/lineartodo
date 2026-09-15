@@ -5,7 +5,9 @@ from __future__ import annotations
 import getpass
 import json
 import os
+import re
 import subprocess
+import unicodedata
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -252,6 +254,24 @@ def _moved_at(node: dict, started, triaged, created):
     return started or triaged or created
 
 
+# Un appel au product owner : un verbe de décision, puis « product owner » dans la même phrase.
+# Les formulations employées vont de « À ARBITRER PRODUCT OWNER » à « A CONFIRMER PAR PRODUCT
+# OWNER » ; exiger le verbe écarte les phrases qui ne font que parler du product owner.
+ARBITRATION = re.compile(
+    r"\b(?:arbitrer|arbitrage|confirmer|valider|trancher|decider)\b[^.\n]{0,24}\bproduct\s*owner\b"
+)
+
+
+def _arbitrations(text: str) -> int:
+    """Combien de fois la description demande une décision au product owner.
+
+    Casse, accents, ponctuation et gras Markdown sont mis à plat avant la recherche : la même
+    demande s'écrit de dix façons, et aucune ne doit passer à travers.
+    """
+    plain = unicodedata.normalize("NFD", text or "").encode("ascii", "ignore").decode()
+    return len(ARBITRATION.findall(re.sub(r"[*_`]+", " ", re.sub(r"\s+", " ", plain)).lower()))
+
+
 def _paper(node: dict | None) -> Paper | None:
     """Un document Linear, réduit à ce qui se dessine et à ce qu'il documente."""
     if not node or not node.get("id"):
@@ -324,6 +344,7 @@ def _issue(node: dict | None, source: str = "") -> Issue | None:
         parent_state=((parent.get("state") or {}).get("type") or ""),
         parent_url=(parent.get("url") or ""),
         branch=(node.get("branchName") or ""),
+        arbitrations=_arbitrations(node.get("description") or ""),
         labels=_tags(node),
         pulls=_pulls(node),
         parent_colour=((parent.get("state") or {}).get("color") or ""),

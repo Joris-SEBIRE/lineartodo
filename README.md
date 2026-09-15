@@ -227,6 +227,14 @@ avec l'urgence. En dessous, ce qui retient le ticket : « bloqué ×N » ou « a
 trois lignes au plus. En bas : le visage de l'assigné, les **pull requests** avec leur numéro et
 la couleur GitHub de leur état, et le temps écoulé depuis le dernier changement d'état.
 
+**Un ticket qui attend une décision produit porte une gélule « arbitrage »**, en orange, sur la
+même ligne que « bloqué » et « autonome ». Elle paraît dès que la description appelle le product
+owner — « À ARBITRER PRODUCT OWNER », « A CONFIRMER PAR PRODUCT OWNER », « à valider avec le
+Product Owner » —, casse, accents, ponctuation et gras indifférents, et compte les occurrences
+quand il y en a plusieurs. Une phrase qui ne fait que parler du product owner n'en déclenche pas :
+il faut un verbe de décision. Elle ne retire pas « autonome » : un ticket peut fort bien n'attendre
+aucun autre ticket et partir dès que la réponse tombe — c'est justement ce qu'on veut voir.
+
 **« autonome » et « bloqué » ne regardent pas l'état du ticket**, seulement ce qui l'attend. Bloqué
 tant qu'un autre ticket le retient, qu'il soit à faire, en cours ou en revue. Autonome quand rien ne
 le retient et qu'aucun sous-ticket ouvert ne lui reste — un parent ne se clôt pas avant ses enfants.

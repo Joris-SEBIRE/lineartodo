@@ -141,6 +141,7 @@ _LEGEND = (
     ("filet", "bug", NSColor.systemRedColor, None),
     ("gélule", "autonome : rien ne l'attend", NSColor.systemGreenColor, None),
     ("gélule", "bloqué : il attend un autre ticket", NSColor.systemRedColor, None),
+    ("gélule", "arbitrage : il attend le product owner", NSColor.systemOrangeColor, None),
     ("trait", "documente", lambda: hex_colour(PAPER_TINT), [2.0, 3.0]),
 )
 
@@ -844,6 +845,13 @@ class Canvas(NSView):
             tint = NSColor.systemGreenColor()
             cursor += _chip(cursor, top, "autonome", tint,
                             tinted_symbol("play.fill", CHIP_GLYPH, tint)) + CHIP_GAP
+        if card.arbitrations:
+            # Le ticket attend une décision produit, pas un autre ticket : l'orange le dit sans
+            # se confondre avec le rouge d'un blocage.
+            text = f"arbitrage ×{card.arbitrations}" if card.arbitrations > 1 else "arbitrage"
+            tint = NSColor.systemOrangeColor()
+            cursor += _chip(cursor, top, text, tint,
+                            tinted_symbol("questionmark.circle.fill", CHIP_GLYPH, tint)) + CHIP_GAP
         if card.type_label:
             tint = hex_colour(card.type_colour) or NSColor.secondaryLabelColor()
             width = _chip_width(card.type_label, _font(10.5, NSFontWeightSemibold), True)

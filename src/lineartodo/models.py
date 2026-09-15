@@ -266,6 +266,9 @@ class Issue:
     parent_url: str = ""
     parent_colour: str = ""
     branch: str = ""
+    # Marqueurs « à arbitrer product owner » trouvés dans la description : le ticket attend une
+    # décision produit, pas un autre ticket.
+    arbitrations: int = 0
     labels: tuple[Tag, ...] = ()
     pulls: tuple[Pull, ...] = ()
     children: tuple[Relation, ...] = ()
