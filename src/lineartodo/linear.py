@@ -659,8 +659,13 @@ class Linear:
             truncated.append(f"{len(notes)} notifications lues, les plus anciennes ignorées")
         return notes, viewer, truncated, wanted
 
-    def fetch_work(self, user_id: str | None, rows: int = 40) -> tuple[Work, list[str]]:
-        """Mes tickets ouverts."""
+    def fetch_work(self, user_id: str | None, rows: int = 100) -> tuple[Work, list[str]]:
+        """Mes tickets ouverts, jusqu'au plafond que Linear accepte.
+
+        Le menu n'en montre qu'une poignée, mais la carte les dessine tous : s'arrêter à
+        quarante en cachait trois sans le dire, les trois qui n'avaient pas bougé depuis le
+        plus longtemps.
+        """
         variables = work_variables(self.cfg, user_id, max(rows, self.cfg.mine_rows))
         data = self.graphql(WORK_QUERY, variables, "mes tickets")
         block = data.get("mine") or {}

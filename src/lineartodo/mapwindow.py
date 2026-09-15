@@ -1054,8 +1054,11 @@ class Map(NSObject):
         who = context.get("identity") or ""
         cards = sum(1 for card in scene.cards if card.kind == "ticket")
         lanes = sum(1 for lane in scene.lanes if lane.key.startswith("projet:"))
+        short = " · liste écrêtée par Linear" if context.get("truncated") else ""
         self.status.setStringValue_(
-            f"{cards} ticket(s) assigné(s) à @{who} · {lanes} projet(s)" if who else f"{cards} ticket(s)"
+            f"{cards} ticket(s) assigné(s) à @{who} · {lanes} projet(s){short}"
+            if who
+            else f"{cards} ticket(s){short}"
         )
 
     @objc.python_method

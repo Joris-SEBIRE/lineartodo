@@ -2028,6 +2028,7 @@ class LinearTodoApp(NSObject):
         return {
             "issues": list(self.work.mine),
             "papers": list(self.work.papers),
+            "truncated": list(self.work_truncated),
             "identity": self.snapshot.identity or self.snapshot.viewer,
             "avatars": self.avatars,
         }
