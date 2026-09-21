@@ -220,6 +220,29 @@ Menu **Carte des tickets** (⌘M). Une fenêtre à part, qui dessine ce qui t'es
 l'énumérer : une carte par ticket, et des flèches typées entre elles. Elle suit les lectures —
 chaque cycle la met à jour, sans la recadrer sous les yeux.
 
+**Elle s'ouvre en grand**, à la taille de l'écran moins la barre des menus et le Dock, comme au
+double-clic sur une barre de titre. Pas en plein écran : elle reste une fenêtre parmi les autres,
+et rien ne disparaît. Redimensionnée, elle garde sa taille jusqu'à la fermeture.
+
+**Le panneau de gauche liste tout ce que le plan dessine.** En haut, une recherche : elle porte
+sur le numéro, le titre, l'état, le projet, l'assigné et l'étiquette, accents et casse
+indifférents, et tous les mots tapés doivent tomber — « productisation backlog » ne garde que ce
+qui est les deux. Entrée emmène au premier de la liste. En dessous, le regroupement : par projet
+— dans l'ordre du plan, donc de faisabilité —, par état, par priorité, par ce qui retient le
+ticket, par dernier mouvement, par date de création, ou par numéro. Chaque intertitre porte le
+compte de son paquet ; chaque ligne porte le visage de son créateur, l'état, le numéro, la
+priorité, ce qui retient le ticket, le titre sur deux lignes, et à droite la valeur sur laquelle
+elle vient d'être triée — l'âge, ou la date de création —, colorée par paliers comme sur les
+cartes. Le filet rouge du bug y est aussi.
+
+**Le bouton au bout du menu renverse l'ordre**, et la flèche montre le sens en cours. Le
+renversement va jusqu'au bout : les paquets s'inversent, et les lignes dans chacun — une liste
+qui se lirait dans deux sens à la fois ne voudrait rien dire.
+
+**Un clic dans la liste amène la carte au centre du plan** et l'entoure de la couleur de l'app
+jusqu'au clic suivant sur le plan. Si le plan est trop réduit pour qu'on lise la carte en
+arrivant, il remonte d'abord à l'échelle où un titre se lit.
+
 **Une carte.** En haut : le visage du créateur, le numéro, l'état — avec le rond de Linear et sa
 couleur — et la priorité, l'icône de Linear redessinée à ses cotes, dans une couleur qui monte
 avec l'urgence. En dessous, ce qui retient le ticket : « bloqué ×N » ou « autonome », puis son

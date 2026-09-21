@@ -18,9 +18,11 @@ superposent pas.
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
+from .formatting import since
 from .models import Issue, Pull
 
 CARD_WIDTH = 320.0
@@ -67,6 +69,33 @@ KIND_OF_LABEL = {
 }
 
 LOOSE_LANE = "Sans projet"
+
+# Panneau de gauche : les regroupements proposés, dans l'ordre du menu déroulant. Chacun est à la
+# fois un regroupement et un tri — le paquet dit le critère, l'ordre interne dit le reste.
+GROUPINGS = (
+    ("projet", "Par projet"),
+    ("état", "Par état"),
+    ("priorité", "Par priorité"),
+    ("retient", "Par ce qui retient"),
+    ("mouvement", "Par dernier mouvement"),
+    ("création", "Par date de création"),
+    ("numéro", "Par numéro"),
+)
+# Ordre de lecture des états : ce qui est en cours d'abord, le fond de pile en dernier.
+STATE_ORDER = {"started": 0, "unstarted": 1, "triage": 2, "backlog": 3, "completed": 4, "canceled": 5}
+# Paliers du temps depuis le dernier mouvement, les mêmes que ceux de la couleur de l'âge.
+AGE_GROUPS = (
+    (1.0, "Aujourd'hui"),
+    (3.0, "Moins de trois jours"),
+    (7.0, "Cette semaine"),
+    (30.0, "Ce mois-ci"),
+    (90.0, "Ce trimestre"),
+    (None, "Plus de trois mois"),
+)
+MONTHS = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre",
+          "octobre", "novembre", "décembre")
+SHORT_MONTHS = ("janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.",
+                "nov.", "déc.")
 
 
 @dataclass
@@ -168,6 +197,19 @@ class Lane:
     width: float = 0.0
     keys: tuple = ()
     rows: tuple = (0, 0)
+
+
+@dataclass
+class Group:
+    """Un paquet de la liste latérale : son titre, sa couleur, et ses cartes dans l'ordre.
+
+    La couleur est celle que Linear donne au projet ou à l'état, en hexadécimal, ou le nom d'une
+    couleur système quand c'est nous qui la choisissons — le panneau résout l'une ou l'autre.
+    """
+
+    label: str
+    colour: str = ""
+    cards: tuple = ()
 
 
 @dataclass
@@ -752,3 +794,106 @@ def draw_map(issues: list, papers: list | None = None) -> Scene:
     scene = wire(place(issues, build(issues, papers)))
     _tracks(scene)
     return scene
+
+
+def _fold(text: str) -> str:
+    """Texte prêt pour la recherche : sans accent ni casse, « état » se trouve en tapant « etat »."""
+    return "".join(
+        letter
+        for letter in unicodedata.normalize("NFD", (text or "").lower())
+        if not unicodedata.combining(letter)
+    )
+
+
+def _days(moment) -> float:
+    """Jours écoulés. Sans date, une éternité : la carte tombe en fin de liste plutôt qu'en tête."""
+    return (datetime.now(timezone.utc) - moment).total_seconds() / 86400.0 if moment else 1e9
+
+
+def _order_of(number: str) -> tuple:
+    """Numéro comparable : sans lui, SPA-812 passerait après SPA-8049, comme dans un dictionnaire."""
+    team, _, digits = (number or "").rpartition("-")
+    return (team, int(digits) if digits.isdigit() else 0)
+
+
+def _hold(card: Card) -> tuple:
+    """Ce qui retient un ticket — un seul paquet par ticket, le plus dur l'emporte."""
+    if card.blocked:
+        return (3, "Bloqué", "systemRedColor")
+    if card.arbitrations:
+        return (1, "Arbitrage", "systemOrangeColor")
+    if card.free:
+        return (0, "Autonome", "systemGreenColor")
+    return (2, "Attend ses sous-tickets", "")
+
+
+def _bucket(card: Card, lane, rank: int, mode: str) -> tuple:
+    """Paquet d'une carte et sa place dedans : rang du paquet, titre, couleur, ordre interne."""
+    state = STATE_ORDER.get(card.state_type, len(STATE_ORDER))
+    urgency = PRIORITY_ORDER.get(card.priority, len(PRIORITY_ORDER))
+    number = _order_of(card.number)
+    if mode == "projet":
+        # L'ordre du plan, pas un autre : la liste se lit comme le couloir se parcourt, donc
+        # dans l'ordre de faisabilité que la carte a déjà calculé.
+        return (rank, lane.label if lane else LOOSE_LANE, lane.colour if lane else "", (card.row, card.col))
+    if mode == "état":
+        return (state, card.state or "Sans état", card.colour, (urgency, number))
+    if mode == "priorité":
+        return (urgency, PRIORITY_LABEL.get(card.priority) or "Sans priorité", "", (state, number))
+    if mode == "retient":
+        place, label, colour = _hold(card)
+        return (place, label, colour, (state, urgency, number))
+    if mode == "mouvement":
+        days = _days(card.moved_at)
+        step = next(index for index, (limit, _) in enumerate(AGE_GROUPS) if limit is None or days < limit)
+        # Le plus immobile en tête de son palier : c'est lui qui va basculer dans le suivant.
+        return (step, AGE_GROUPS[step][1], "", (-days, number))
+    if mode == "création":
+        moment = card.created_at
+        label = f"{MONTHS[moment.month - 1]} {moment.year}" if moment else "date inconnue"
+        return (-(moment.year * 12 + moment.month) if moment else 1, label, "", (_days(moment), number))
+    if mode == "numéro":
+        return (0, "Tous les tickets", "", (number,))
+    raise ValueError(f"regroupement inconnu : {mode}")
+
+
+def outline(scene: Scene, mode: str = "projet", query: str = "", down: bool = False) -> list:
+    """La liste du panneau : les tickets groupés, ordonnés, réduits à ce qui est cherché.
+
+    Un seul endroit décide de ce que la liste contient et dans quel ordre ; le panneau ne fait
+    que le dessiner. La recherche porte sur ce qui se lit d'un ticket — son numéro, son titre,
+    son état, son projet, son assigné, son étiquette — et tous les mots tapés doivent tomber.
+
+    `down` renverse l'ordre de bout en bout : les paquets et, dans chacun, les lignes. Un
+    renversement partiel donnerait une liste qui se lit dans deux sens à la fois.
+    """
+    homes = {key: (index, lane) for index, lane in enumerate(scene.lanes) for key in lane.keys}
+    words = _fold(query).split()
+    packs: dict = {}
+    for card in scene.cards:
+        if card.kind != "ticket":
+            continue
+        rank, lane = homes.get(card.key, (len(scene.lanes), None))
+        if words:
+            hay = _fold(" ".join((card.number, card.title, card.state, card.assignee,
+                                  lane.label if lane else "", card.type_label)))
+            if not all(word in hay for word in words):
+                continue
+        place, label, colour, order = _bucket(card, lane, rank, mode)
+        packs.setdefault((place, label, colour), []).append((order, card))
+    groups = [
+        Group(label=label, colour=colour,
+              cards=tuple(card for _, card in sorted(entries, key=lambda entry: entry[0])))
+        for (place, label, colour), entries in sorted(packs.items(), key=lambda pack: pack[0][:2])
+    ]
+    if down:
+        groups = [Group(group.label, group.colour, tuple(reversed(group.cards))) for group in reversed(groups)]
+    return groups
+
+
+def value_of(card: Card, mode: str) -> str:
+    """Ce qu'une ligne affiche à droite : la valeur sur laquelle elle vient d'être triée."""
+    if mode == "création":
+        moment = card.created_at
+        return "" if moment is None else f"{moment.day} {SHORT_MONTHS[moment.month - 1]} {moment.year % 100}"
+    return since(card.moved_at) if card.moved_at else ""

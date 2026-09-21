@@ -1,4 +1,9 @@
-"""Carte des tickets : la fenêtre, son canevas, et les gestes pour s'y déplacer.
+"""Carte des tickets : la fenêtre, son canevas, son panneau, et les gestes pour s'y déplacer.
+
+La fenêtre tient deux vues côte à côte. À droite le plan, qui montre ce qui relie les tickets
+entre eux. À gauche le panneau, qui montre les mêmes tickets en liste — groupés, triés,
+cherchables — et ramène le plan sur celui qu'on choisit : la carte répond à « qu'est-ce qui tient
+à quoi », la liste à « qu'est-ce que j'ai, au juste ».
 
 Le canevas ne fabrique aucune sous-vue : deux cents cartes seraient deux cents vues à poser et
 à bouger à chaque geste. Il dessine la scène calculée par `graph` dans son propre repère et
@@ -25,6 +30,8 @@ from Cocoa import (
     NSBezierPath,
     NSBox,
     NSBoxCustom,
+    NSButton,
+    NSBezelStyleInline,
     NSColor,
     NSCompositingOperationSourceOver,
     NSCursor,
@@ -44,6 +51,10 @@ from Cocoa import (
     NSMutableParagraphStyle,
     NSObject,
     NSParagraphStyleAttributeName,
+    NSPopUpButton,
+    NSScreen,
+    NSScrollView,
+    NSSearchField,
     NSTextAlignmentCenter,
     NSTextField,
     NSTrackingActiveInKeyWindow,
@@ -53,7 +64,9 @@ from Cocoa import (
     NSTrackingMouseMoved,
     NSView,
     NSViewHeightSizable,
+    NSViewMaxXMargin,
     NSViewMaxYMargin,
+    NSViewMinXMargin,
     NSViewMinYMargin,
     NSViewWidthSizable,
     NSWindow,
@@ -75,12 +88,23 @@ from .glyphs import (
     pull as pull_glyph,
     pull_tint,
     state as state_glyph,
+    symbol,
     tinted as tinted_symbol,
 )
-from .graph import PRIORITY_LABEL, draw_map
+from .graph import GROUPINGS, PRIORITY_LABEL, draw_map, outline, value_of
 
 BAR_HEIGHT = 34.0
 BAR_INSET = 16.0
+# Panneau de gauche : sa largeur, celle de ses commandes, et la taille de ses lignes.
+PANEL_WIDTH = 300.0
+PANEL_PAD = 10.0
+SEARCH_HEIGHT = 24.0
+MODE_HEIGHT = 22.0
+ROW_HEIGHT = 56.0
+HEAD_HEIGHT = 28.0
+ROW_GLYPH = 11.0
+ROW_AVATAR = 20.0
+WAY_WIDTH = 30.0
 # Bornes du zoom : en dessous rien n'est lisible, au-dessus on ne voit qu'une carte.
 ZOOM_MIN, ZOOM_MAX = 0.2, 2.0
 ZOOM_STEP = 1.18
@@ -353,6 +377,8 @@ class Canvas(NSView):
         self.hovered = ""
         self.related = set()
         self.pointer = None
+        # Carte désignée depuis le panneau de gauche : elle reste entourée jusqu'au clic suivant.
+        self.chosen = ""
         # Zones cliquables posées à l'intérieur des cartes (les PR), et la flèche désignée.
         self.zones = []
         self.route = None
@@ -522,6 +548,7 @@ class Canvas(NSView):
 
     def mouseDown_(self, event):
         point = self.convertPoint_fromView_(event.locationInWindow(), None)
+        self.chosen = ""
         self.dragging = (point.x, point.y)
         self.moved = 0.0
         NSCursor.closedHandCursor().set()
@@ -567,6 +594,26 @@ class Canvas(NSView):
         )
         size = self.bounds().size
         self.origin = (middle[0] - size.width / self.scale / 2, middle[1] - size.height / self.scale / 2)
+        self.setNeedsDisplay_(True)
+
+    @objc.python_method
+    def focus(self, key: str) -> None:
+        """Amène une carte au centre et la désigne : c'est ce que fait un clic dans le panneau.
+
+        Si le plan est trop réduit pour qu'on lise la carte en arrivant, on remonte d'abord à
+        l'échelle où un titre se lit — arriver sur un rectangle muet n'apprendrait rien.
+        """
+        card = self.scene.card(key) if self.scene else None
+        if card is None:
+            return
+        self.scale = max(self.scale, READABLE)
+        size = self.bounds().size
+        self.origin = (
+            card.middle[0] - size.width / self.scale / 2,
+            card.middle[1] - size.height / self.scale / 2,
+        )
+        self.chosen = key
+        self.related = self.neighbours(key)
         self.setNeedsDisplay_(True)
 
     def scrollWheel_(self, event):
@@ -616,6 +663,10 @@ class Canvas(NSView):
             return
         self.zones = []
         NSGraphicsContext.saveGraphicsState()
+        # Le plan est plus grand que la vue et se dessine dans son propre repère : sans cette
+        # découpe, ce qui déborde du cadre peut aller peindre chez le voisin, le panneau de
+        # gauche en premier.
+        NSBezierPath.clipRect_(self.bounds())
         transform = NSAffineTransform.transform()
         transform.scaleBy_(self.scale)
         transform.translateXBy_yBy_(-self.origin[0], -self.origin[1])
@@ -739,7 +790,7 @@ class Canvas(NSView):
             _write(card.title or "parent hors de la liste", _font(12.5), NSColor.tertiaryLabelColor(),
                    NSMakeRect(card.x + 18.0, card.y + 34.0, card.width - 36.0, 30.0))
             return
-        if card.key == self.hovered:
+        if card.key in (self.hovered, self.chosen):
             getattr(NSColor, IDENTITY_TINT)().setStroke()
             path.setLineWidth_(2.0)
         elif card.key in self.related:
@@ -1030,6 +1081,328 @@ class Legend(NSView):
             cursor += width + 20.0
 
 
+def _group_tint(colour: str):
+    """Couleur d'un intertitre : l'hexadécimal de Linear, ou le nom d'une couleur système."""
+    if colour.startswith("#"):
+        return hex_colour(colour) or NSColor.secondaryLabelColor()
+    return getattr(NSColor, colour)() if colour else NSColor.secondaryLabelColor()
+
+
+class Listing(NSView):
+    """La liste du panneau : des intertitres, des lignes, et le clic qui mène au plan."""
+
+    def initWithFrame_(self, frame):
+        self = objc.super(Listing, self).initWithFrame_(frame)
+        if self is None:
+            return None
+        self.groups = []
+        self.mode = GROUPINGS[0][0]
+        # Place de chaque intertitre et de chaque ligne, calculée quand la liste change et non
+        # quand elle se dessine : le pointeur sait où il est avant même le premier dessin.
+        self.heads = []
+        self.rows = []
+        self.hovered = ""
+        self.chosen = ""
+        self.pressed = ""
+        self.canvas = None
+        self.avatars = None
+        return self
+
+    def isFlipped(self):
+        return True
+
+    @objc.python_method
+    def show(self, groups, mode: str, reset: bool) -> None:
+        """Nouvelle liste : on pose tout de suite la place de chacun, puis on redessine.
+
+        On ne remonte en tête que si la demande a changé, pas la lecture : un cycle de fond ne
+        doit pas faire sauter la liste sous les yeux de qui la parcourt.
+        """
+        self.groups, self.mode = list(groups), mode
+        clip = self.superview()
+        seen = clip.bounds().size if clip is not None else self.frame().size
+        self.heads, self.rows = [], []
+        top = PANEL_PAD
+        for index, group in enumerate(self.groups):
+            self.heads.append((top, group, index > 0))
+            top += HEAD_HEIGHT
+            for card in group.cards:
+                self.rows.append((NSMakeRect(0.0, top, seen.width, ROW_HEIGHT), card))
+                top += ROW_HEIGHT
+        self.setFrameSize_(NSMakeSize(seen.width, max(top + PANEL_PAD, seen.height)))
+        if reset:
+            self.scrollPoint_(NSMakePoint(0.0, 0.0))
+        self.setNeedsDisplay_(True)
+
+    def updateTrackingAreas(self):
+        for area in self.trackingAreas():
+            self.removeTrackingArea_(area)
+        self.addTrackingArea_(
+            NSTrackingArea.alloc().initWithRect_options_owner_userInfo_(
+                self.bounds(),
+                NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveInKeyWindow
+                | NSTrackingInVisibleRect,
+                self,
+                None,
+            )
+        )
+        objc.super(Listing, self).updateTrackingAreas()
+
+    @objc.python_method
+    def row_at(self, point) -> str:
+        for box, card in self.rows:
+            if box.origin.y <= point.y <= box.origin.y + box.size.height:
+                return card.key
+        return ""
+
+    def mouseMoved_(self, event):
+        point = self.convertPoint_fromView_(event.locationInWindow(), None)
+        key = self.row_at(point)
+        if key != self.hovered:
+            self.hovered = key
+            (NSCursor.pointingHandCursor() if key else NSCursor.arrowCursor()).set()
+            self.setNeedsDisplay_(True)
+
+    def mouseExited_(self, event):
+        if self.hovered:
+            self.hovered = ""
+            NSCursor.arrowCursor().set()
+            self.setNeedsDisplay_(True)
+
+    def mouseDown_(self, event):
+        # La vue doit prendre le clic pour recevoir le relâchement : c'est lui qui choisit.
+        self.pressed = self.row_at(self.convertPoint_fromView_(event.locationInWindow(), None))
+
+    def mouseUp_(self, event):
+        key = self.row_at(self.convertPoint_fromView_(event.locationInWindow(), None))
+        if key and key == self.pressed:
+            self.pick(key)
+
+    @objc.python_method
+    def pick(self, key: str) -> None:
+        """Ligne choisie : elle se marque, et le plan vient se poser sur sa carte."""
+        self.chosen = key
+        for box, card in self.rows:
+            if card.key == key:
+                self.scrollRectToVisible_(box)
+        if self.canvas is not None:
+            self.canvas.focus(key)
+        self.setNeedsDisplay_(True)
+
+    def drawRect_(self, rect):
+        NSColor.controlBackgroundColor().setFill()
+        NSBezierPath.fillRect_(self.bounds())
+        width = self.bounds().size.width
+        if not self.groups:
+            _write("aucun ticket ne correspond", _font(11.5), NSColor.tertiaryLabelColor(),
+                   NSMakeRect(PANEL_PAD, PANEL_PAD + 6.0, width - 2 * PANEL_PAD, 18.0))
+            return
+        # Seul ce qui touche la partie à rafraîchir est peint : la liste fait plusieurs fois la
+        # hauteur du panneau, et le défilement ne demande qu'une bande.
+        first, last = rect.origin.y, rect.origin.y + rect.size.height
+        for top, group, rule in self.heads:
+            if top + HEAD_HEIGHT >= first and top <= last:
+                self.draw_head(group, top, width, rule)
+        for box, card in self.rows:
+            if box.origin.y + ROW_HEIGHT >= first and box.origin.y <= last:
+                self.draw_row(card, box)
+
+    @objc.python_method
+    def draw_head(self, group, top: float, width: float, rule: bool) -> None:
+        if rule:
+            NSColor.separatorColor().setFill()
+            NSBezierPath.fillRect_(NSMakeRect(PANEL_PAD, top + 1.0, width - 2 * PANEL_PAD, 1.0))
+        count = str(len(group.cards))
+        count_font = _font(10.0, NSFontWeightSemibold)
+        span = _width(count, count_font) + 3.0
+        _write(group.label.upper(), _font(10.0, NSFontWeightBold), _group_tint(group.colour),
+               NSMakeRect(PANEL_PAD, top + 9.0, width - 2 * PANEL_PAD - span - 6.0, 16.0))
+        _write(count, count_font, NSColor.tertiaryLabelColor(),
+               NSMakeRect(width - PANEL_PAD - span, top + 9.0, span, 16.0))
+
+    @objc.python_method
+    def marks(self, card) -> list:
+        """Les signes de la première ligne : la priorité, puis ce qui retient le ticket.
+
+        Les mêmes règles que les gélules d'une carte — « bloqué » ou « autonome », et
+        « arbitrage » par-dessus, parce qu'un ticket peut attendre les deux.
+        """
+        found = [priority_glyph(card.priority, ROW_GLYPH) if card.priority else None]
+        if card.blocked:
+            found.append(tinted_symbol("hand.raised.fill", ROW_GLYPH, NSColor.systemRedColor()))
+        elif card.free:
+            found.append(tinted_symbol("play.fill", ROW_GLYPH, NSColor.systemGreenColor()))
+        if card.arbitrations:
+            found.append(tinted_symbol("questionmark.circle.fill", ROW_GLYPH, NSColor.systemOrangeColor()))
+        return [glyph for glyph in found if glyph is not None]
+
+    @objc.python_method
+    def draw_row(self, card, box) -> None:
+        if card.key in (self.chosen, self.hovered):
+            shape = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                NSMakeRect(6.0, box.origin.y + 1.0, box.size.width - 12.0, ROW_HEIGHT - 2.0), 7.0, 7.0
+            )
+            # Le survol est la même couleur que le choix, en plus léger : on voit ce qu'on vise
+            # sans le confondre avec ce qui est désigné sur le plan.
+            tint = getattr(NSColor, IDENTITY_TINT)()
+            tint.colorWithAlphaComponent_(0.24 if card.key == self.chosen else 0.07).setFill()
+            shape.fill()
+        if card.type_key == "bug":
+            # Le filet rouge de la carte, repris ici : un bug se repère sans lire, des deux côtés.
+            (hex_colour(card.type_colour) or NSColor.systemRedColor()).setFill()
+            NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                NSMakeRect(2.0, box.origin.y + 13.0, 3.0, ROW_HEIGHT - 26.0), 1.5, 1.5
+            ).fill()
+        # Le visage du créateur tient une colonne à lui, sur toute la hauteur de la ligne :
+        # c'est lui qu'on cherche du regard, comme en haut d'une carte. La colonne est réservée
+        # même quand la photo n'est pas encore en cache, sinon les lignes se décalent entre elles.
+        face = self.avatars.image(card.creator_face, ROW_AVATAR) if (self.avatars and card.creator_face) else None
+        if face is not None:
+            _image(face, NSMakeRect(PANEL_PAD, box.origin.y + (ROW_HEIGHT - ROW_AVATAR) / 2,
+                                    ROW_AVATAR, ROW_AVATAR))
+        left = PANEL_PAD + ROW_AVATAR + 7.0
+        top = box.origin.y + 7.0
+        value = value_of(card, self.mode)
+        value_font = _font(10.0, NSFontWeightSemibold)
+        span = _width(value, value_font) + 3.0 if value else 0.0
+        if value:
+            # La couleur suit la date affichée, pas une autre : en regroupement par création,
+            # c'est l'âge du ticket qui rougit, et non le temps depuis son dernier mouvement.
+            moment = card.created_at if self.mode == "création" else card.moved_at
+            _write(value, value_font, _age_tint(moment),
+                   NSMakeRect(box.size.width - PANEL_PAD - span, top, span, 14.0))
+        cursor = left
+        glyph = state_glyph(card.state_type, card.colour, ROW_GLYPH)
+        if glyph is not None:
+            _image(glyph, NSMakeRect(cursor, top + 1.5, ROW_GLYPH, ROW_GLYPH))
+            cursor += ROW_GLYPH + 5.0
+        number_font = _mono(10.5)
+        _write(card.number, number_font, NSColor.secondaryLabelColor(),
+               NSMakeRect(cursor, top, 84.0, 14.0))
+        cursor += _width(card.number, number_font) + 6.0
+        limit = box.size.width - PANEL_PAD - span - 4.0
+        for mark in self.marks(card):
+            if cursor + ROW_GLYPH > limit:
+                break
+            _image(mark, NSMakeRect(cursor, top + 1.5, ROW_GLYPH, ROW_GLYPH))
+            cursor += ROW_GLYPH + 4.0
+        # Deux lignes pour le titre : nos tickets portent un préfixe de projet, et une seule
+        # ligne n'en laisserait voir que lui.
+        title_font = _font(12.0, NSFontWeightMedium)
+        inner = box.size.width - left - PANEL_PAD
+        for index, line in enumerate(_lines(card.title, title_font, inner, 2)):
+            _write(line, title_font, NSColor.labelColor(),
+                   NSMakeRect(left, box.origin.y + 23.0 + index * 15.0, inner, 15.0))
+
+
+class Sidebar(NSView):
+    """Panneau de gauche : chercher un ticket, et retrouver sa place sur le plan.
+
+    La carte montre ce qui relie les tickets entre eux ; elle ne dit pas d'un coup d'œil tout ce
+    qu'on a. Le panneau répond à l'autre question — la liste de tout, groupée et ordonnée selon
+    ce qu'on cherche à savoir — et le clic ramène au plan, sur la carte du ticket.
+
+    Rien ne se décide ici : `graph.outline` fabrique les paquets, ce panneau les dessine.
+    """
+
+    def initWithFrame_(self, frame):
+        self = objc.super(Sidebar, self).initWithFrame_(frame)
+        if self is None:
+            return None
+        self.scene = None
+        # Sens du tri : l'ordre naturel de chaque regroupement, ou son exact contraire.
+        self.down = False
+        width, height = frame.size.width, frame.size.height
+        self.search = NSSearchField.alloc().initWithFrame_(
+            NSMakeRect(PANEL_PAD, height - PANEL_PAD - SEARCH_HEIGHT, width - 2 * PANEL_PAD, SEARCH_HEIGHT)
+        )
+        self.search.setPlaceholderString_("chercher un ticket")
+        self.search.setFont_(_font(11.5))
+        self.search.setDelegate_(self)
+        self.search.setTarget_(self)
+        self.search.setAction_("jump:")
+        self.search.setAutoresizingMask_(NSViewWidthSizable | NSViewMinYMargin)
+        self.addSubview_(self.search)
+        top = height - PANEL_PAD - SEARCH_HEIGHT - 8.0 - MODE_HEIGHT
+        self.modes = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+            NSMakeRect(PANEL_PAD - 3.0, top, width - 2 * PANEL_PAD + 6.0 - WAY_WIDTH, MODE_HEIGHT), False
+        )
+        self.modes.addItemsWithTitles_([label for _, label in GROUPINGS])
+        self.modes.setFont_(_font(11.5, NSFontWeightMedium))
+        self.modes.setTarget_(self)
+        self.modes.setAction_("regroup:")
+        self.modes.setAutoresizingMask_(NSViewWidthSizable | NSViewMinYMargin)
+        self.addSubview_(self.modes)
+        self.way = NSButton.alloc().initWithFrame_(
+            NSMakeRect(width - PANEL_PAD - WAY_WIDTH + 3.0, top, WAY_WIDTH, MODE_HEIGHT)
+        )
+        self.way.setTitle_("")
+        self.way.setBezelStyle_(NSBezelStyleInline)
+        self.way.setTarget_(self)
+        self.way.setAction_("flip:")
+        self.way.setAutoresizingMask_(NSViewMinXMargin | NSViewMinYMargin)
+        self.addSubview_(self.way)
+        self._way_look()
+        scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(0.0, 0.0, width, top - 8.0))
+        scroll.setHasVerticalScroller_(True)
+        scroll.setAutohidesScrollers_(True)
+        scroll.setDrawsBackground_(False)
+        scroll.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
+        self.listing = Listing.alloc().initWithFrame_(NSMakeRect(0.0, 0.0, width, 1.0))
+        scroll.setDocumentView_(self.listing)
+        self.addSubview_(scroll)
+        return self
+
+    def drawRect_(self, rect):
+        NSColor.controlBackgroundColor().setFill()
+        NSBezierPath.fillRect_(self.bounds())
+
+    @objc.python_method
+    def attach(self, canvas) -> None:
+        self.listing.canvas = canvas
+
+    @objc.python_method
+    def show(self, scene, avatars=None, reset: bool = False) -> None:
+        self.scene = scene
+        self.listing.avatars = avatars or self.listing.avatars
+        self.rebuild(reset)
+
+    @objc.python_method
+    def rebuild(self, reset: bool) -> None:
+        if self.scene is None:
+            return
+        mode = GROUPINGS[max(0, self.modes.indexOfSelectedItem())][0]
+        self.listing.show(outline(self.scene, mode, self.search.stringValue(), self.down), mode, reset)
+
+    @objc.python_method
+    def _way_look(self) -> None:
+        """Le bouton montre le sens en cours : la flèche monte quand la liste monte."""
+        glyph = symbol("arrow.down" if self.down else "arrow.up", 11.0)
+        if glyph is not None:
+            self.way.setImage_(glyph)
+        self.way.setToolTip_(
+            f"ordre {'décroissant' if self.down else 'croissant'} — cliquer pour inverser"
+        )
+
+    def controlTextDidChange_(self, notification):
+        self.rebuild(True)
+
+    def regroup_(self, sender):
+        self.rebuild(True)
+
+    def flip_(self, sender):
+        """Renverse l'ordre : les paquets, et les lignes dans chacun."""
+        self.down = not self.down
+        self._way_look()
+        self.rebuild(True)
+
+    def jump_(self, sender):
+        """Entrée dans la recherche : on part sur le premier ticket de la liste."""
+        first = next((card for group in self.listing.groups for card in group.cards), None)
+        if first is not None:
+            self.listing.pick(first.key)
+
+
 class Map(NSObject):
     """Fenêtre de la carte : un bandeau qui dit ce qu'on regarde, et le canevas dessous."""
 
@@ -1039,6 +1412,7 @@ class Map(NSObject):
             return None
         self.avatars = context.get("avatars")
         self.canvas = None
+        self.sidebar = None
         self.status = None
         self.window = self._window()
         self.refresh(context)
@@ -1051,6 +1425,7 @@ class Map(NSObject):
         self.avatars = context.get("avatars") or self.avatars
         scene = draw_map(issues, context.get("papers") or [])
         self.canvas.show(scene, self.avatars)
+        self.sidebar.show(scene, self.avatars)
         who = context.get("identity") or ""
         cards = sum(1 for card in scene.cards if card.kind == "ticket")
         lanes = sum(1 for lane in scene.lanes if lane.key.startswith("projet:"))
@@ -1073,11 +1448,17 @@ class Map(NSObject):
         )
         window.setTitle_("LinearTodo, carte des tickets")
         window.setReleasedWhenClosed_(False)
-        window.setMinSize_(NSMakeSize(640, 420))
+        window.setMinSize_(NSMakeSize(PANEL_WIDTH + 420.0, 420.0))
         window.setDelegate_(self)
-
-        content = NSView.alloc().initWithFrame_(frame)
-        width, height = frame.size.width, frame.size.height
+        # Ouverte en grand, comme au double-clic sur la barre de titre : un plan a besoin de
+        # toute la place. Pas le plein écran, qui prendrait un bureau à lui et cacherait la
+        # barre des menus — d'où le cadre visible de l'écran plutôt qu'un basculement.
+        screen = NSScreen.mainScreen()
+        if screen is not None:
+            window.setFrame_display_(screen.visibleFrame(), False)
+        size = window.contentRectForFrameRect_(window.frame()).size
+        content = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, size.width, size.height))
+        width, height = size.width, size.height
         bar = NSView.alloc().initWithFrame_(NSMakeRect(0, height - BAR_HEIGHT, width, BAR_HEIGHT))
         bar.setAutoresizingMask_(NSViewWidthSizable | NSViewMinYMargin)
         self.status = _label("", NSMakeRect(BAR_INSET, 9.0, 380.0, 16.0), 11.5, NSFontWeightSemibold,
@@ -1085,7 +1466,7 @@ class Map(NSObject):
         bar.addSubview_(self.status)
         legend = _label(
             "glisser pour se déplacer · ⌘molette ou pincer pour zoomer · ⌘0 recadre · clic : ouvrir le ticket "
-            "· en haut le créateur, en bas l'assigné",
+            "· à gauche, la liste mène à la carte · en haut le créateur, en bas l'assigné",
             NSMakeRect(BAR_INSET + 390.0, 9.0, width - BAR_INSET * 2 - 390.0, 16.0),
             10.5,
             NSFontWeightRegular,
@@ -1106,14 +1487,27 @@ class Map(NSObject):
         rule.setAutoresizingMask_(NSViewWidthSizable | NSViewMaxYMargin)
         content.addSubview_(rule)
 
+        middle = height - 2 * BAR_HEIGHT
+        self.sidebar = Sidebar.alloc().initWithFrame_(NSMakeRect(0, BAR_HEIGHT, PANEL_WIDTH, middle))
+        self.sidebar.setAutoresizingMask_(NSViewHeightSizable | NSViewMaxXMargin)
+        content.addSubview_(self.sidebar)
+        edge = NSBox.alloc().initWithFrame_(NSMakeRect(PANEL_WIDTH, BAR_HEIGHT, 1.0, middle))
+        edge.setBoxType_(NSBoxCustom)
+        edge.setBorderWidth_(0.0)
+        edge.setFillColor_(NSColor.separatorColor())
+        edge.setAutoresizingMask_(NSViewHeightSizable | NSViewMaxXMargin)
+        content.addSubview_(edge)
+
         self.canvas = Canvas.alloc().initWithFrame_(
-            NSMakeRect(0, BAR_HEIGHT, width, height - 2 * BAR_HEIGHT)
+            NSMakeRect(PANEL_WIDTH + 1.0, BAR_HEIGHT, width - PANEL_WIDTH - 1.0, middle)
         )
         self.canvas.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
         content.addSubview_(self.canvas)
+        self.sidebar.attach(self.canvas)
         window.setContentView_(content)
         window.makeFirstResponder_(self.canvas)
-        window.center()
+        if screen is None:
+            window.center()
         return window
 
     def windowWillClose_(self, notification):
