@@ -79,6 +79,8 @@ THROTTLED_SECONDS = 120
 FROZEN_AFTER = 120.0
 # Un cycle qui ne rend jamais la main : au-delà, on relâche le drapeau de force.
 STUCK_AFTER = 90.0
+# Après un échec, on attend au moins ça avant de retenter, même sans consigne de l'API.
+RETRY_FLOOR = 30
 MAX_ROWS_PER_GROUP = 15
 # Toutes les images font la même largeur : le badge ne tremble pas pendant l'animation.
 SPINNER_FRAMES = ("◐", "◓", "◑", "◒")
@@ -874,6 +876,9 @@ class LinearTodoApp(NSObject):
             return max(wanted, THROTTLED_SECONDS)
         if any(trouble["kind"] == "quota" for trouble in self.health.values()):
             return max(wanted, THROTTLED_SECONDS)
+        if self.snapshot.error:
+            # Un échec ne doit pas relancer un cycle à chaque tick : c'est ce qui entretient un 429.
+            return max(wanted, RETRY_FLOOR)
         return wanted
 
     @objc.python_method
@@ -889,11 +894,14 @@ class LinearTodoApp(NSObject):
 
     @objc.python_method
     def progress(self) -> float:
-        """Part du cycle déjà écoulée, entre 0 et 1."""
-        if self.snapshot.fetched_at is None:
+        """Part du cycle déjà écoulée, entre 0 et 1 — comptée depuis la dernière tentative.
+
+        Sur la dernière réussite, l'anneau resterait plein pendant toute une panne.
+        """
+        if self.snapshot.attempted_at is None:
             return 0.0
         interval = max(1, self.interval())
-        return max(0.0, min(1.0, (now() - self.snapshot.fetched_at).total_seconds() / interval))
+        return max(0.0, min(1.0, (now() - self.snapshot.attempted_at).total_seconds() / interval))
 
     @objc.python_method
     def ring_step(self) -> int:
@@ -902,9 +910,14 @@ class LinearTodoApp(NSObject):
 
     @objc.python_method
     def countdown(self) -> int:
-        if self.snapshot.fetched_at is None:
+        """Temps avant la prochaine tentative, comptée depuis la dernière — réussie ou non.
+
+        Sur `fetched_at`, une panne durable laisse le compteur à zéro en permanence et l'app
+        relance un cycle complet à chaque tick, contre une API qui demande justement d'attendre.
+        """
+        if self.snapshot.attempted_at is None:
             return 0
-        return round(self.interval() - (now() - self.snapshot.fetched_at).total_seconds())
+        return round(self.interval() - (now() - self.snapshot.attempted_at).total_seconds())
 
     def wake_(self, notification):
         self.start_fetch()
@@ -1165,6 +1178,7 @@ class LinearTodoApp(NSObject):
                 viewer=self.viewer.display_name if self.viewer else "",
                 identity=identity.display_name if identity else "",
                 fetched_at=now(),
+                attempted_at=now(),
                 requests_left=self.client.requests_left,
                 complexity_left=self.client.complexity_left,
                 truncated=truncated + self.work_truncated + self.done_truncated,
@@ -1184,7 +1198,11 @@ class LinearTodoApp(NSObject):
             faces = {item.avatar for item in snapshot.items}
             faces |= {face for item in snapshot.items for face in item.faces}
             faces |= {person.face for person in snapshot.people}
-            self.avatars.prefetch({face for face in faces if face})
+            try:
+                self.avatars.prefetch({face for face in faces if face})
+            except Exception as exc:
+                # Les lignes sont déjà affichées : une panne de photo ne doit pas coûter le cycle.
+                log_error(f"photos : {type(exc).__name__}: {exc}")
 
     @objc.python_method
     def _failed(self, message: str, trouble=None) -> Snapshot:
@@ -1196,6 +1214,7 @@ class LinearTodoApp(NSObject):
             requests_left=self.client.requests_left,
             complexity_left=self.client.complexity_left,
             fetched_at=self.snapshot.fetched_at,
+            attempted_at=now(),
             error=message,
             people=self.people,
             unread_total=self.unread_total,
@@ -1209,6 +1228,7 @@ class LinearTodoApp(NSObject):
         self.snapshot = replace(
             self.snapshot,
             fetched_at=now(),
+            attempted_at=now(),
             requests_left=self.client.requests_left,
             complexity_left=self.client.complexity_left,
             error=None,

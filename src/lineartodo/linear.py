@@ -544,6 +544,12 @@ class Linear:
             # urllib lève TimeoutError sans l'emballer dans URLError : sans cette branche, une
             # lenteur réseau tuait le cycle au lieu d'être une panne passagère.
             raise LinearError("Délai dépassé côté réseau", path=name) from exc
+        except OSError as exc:
+            # Connexion coupée en cours de lecture : ni URLError, ni TimeoutError.
+            raise LinearError(f"Réseau interrompu ({exc})", path=name) from exc
+        except json.JSONDecodeError as exc:
+            # HTTP 200 avec du HTML dans le corps : portail captif, proxy d'entreprise.
+            raise LinearError("Réponse illisible : portail captif ?", path=name) from exc
         if errors := payload.get("errors"):
             message = "; ".join(str(entry.get("message") or "?") for entry in errors)[:300]
             raise LinearError(f"GraphQL : {message}", path=name)

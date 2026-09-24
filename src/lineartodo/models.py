@@ -437,6 +437,8 @@ class Snapshot:
     # Identité observée : le propriétaire de la clé, ou la personne du mode « voir en tant que ».
     identity: str = ""
     fetched_at: datetime | None = None
+    # Dernière tentative, réussie ou non : c'est elle qui cadence le cycle suivant.
+    attempted_at: datetime | None = None
     # Restes annoncés par Linear dans les en-têtes : requêtes, puis points de complexité.
     requests_left: int | None = None
     complexity_left: int | None = None
