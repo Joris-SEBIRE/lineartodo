@@ -1557,8 +1557,8 @@ class LinearTodoApp(NSObject):
         """Barre d'accès rapide, épinglée en tête : les lignes du pied, en icônes et en abrégé.
 
         Mêmes icônes, même ordre, même vocabulaire : ce sont les lignes du bas, réduites à ce
-        qui tient sur une ligne. Elles se partagent la largeur du menu en parts égales, et le
-        libellé de chacune est coupé net à la part suivante.
+        qui tient sur une ligne. Chacune a la place de son libellé, et celle qu'un libellé court
+        laisse libre va aux autres ; un libellé trop long est coupé net à la part suivante.
 
         Posée en dernier, mais insérée en premier : c'est le seul moment où le menu connaît sa
         largeur, celle de sa ligne la plus large.

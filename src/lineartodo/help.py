@@ -249,8 +249,9 @@ démarrage, la carte des tickets, les réglages, quitter — plus « réafficher
 quand il y en a. Ces lignes restent en bas, écrites en entier ; en haut, elles sont à portée sans \
 dérouler.
 
-Les actions se partagent la largeur du menu en parts égales. Chacune porte son icône puis le \
-début de son libellé, coupé net à la part suivante. Le survol pose une pastille sous la part \
+Chaque action a la place de son icône et de son libellé, et celle qu'un libellé court laisse \
+libre va aux autres : un libellé n'est coupé que faute de place, net à la part suivante, et tous \
+ceux qui le sont gardent la même largeur. Le survol pose une pastille sous la part \
 visée, change le curseur en main et donne l'infobulle complète ; le clic l'éclaire un instant, \
 sans quoi rien ne dirait qu'il a été pris. Celles qui basculent se colorent quand elles sont \
 actives — le lancement au démarrage, et la carte quand sa fenêtre est déjà ouverte, auquel cas le \
