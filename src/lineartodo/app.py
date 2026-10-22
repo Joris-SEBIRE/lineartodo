@@ -7,6 +7,7 @@ import sys
 import threading
 import traceback
 from dataclasses import replace
+from pathlib import Path
 
 import objc
 from Cocoa import (
@@ -48,6 +49,7 @@ from Cocoa import (
     NSRunLoop,
     NSRunLoopCommonModes,
     NSScreen,
+    NSSound,
     NSStatusBar,
     NSTextAttachment,
     NSTimer,
@@ -62,6 +64,7 @@ from . import IDENTITY_TINT, launchagent, mapwindow, shortcuts
 from . import help as manual
 from .avatars import BAR_SIZE, SIZE as AVATAR_SIZE, Avatars
 from .glyphs import state as _state_glyph, symbol as _symbol
+from .chimes import Bell
 from .config import CONFIG_PATH, Config
 from .engine import build_items, count_stale, now, summarize, summarize_warm
 from .formatting import ago, countdown, join, since, spell, truncate
@@ -79,6 +82,8 @@ THROTTLED_SECONDS = 120
 FROZEN_AFTER = 120.0
 # Un cycle qui ne rend jamais la main : au-delà, on relâche le drapeau de force.
 STUCK_AFTER = 90.0
+# Une note douce de vibraphone, fabriquée par scripts/sons.py.
+CHIME_PATH = Path(__file__).with_name("nouveau.wav")
 # Après un échec, on attend au moins ça avant de retenter, même sans consigne de l'API.
 RETRY_FLOOR = 30
 MAX_ROWS_PER_GROUP = 15
@@ -755,6 +760,8 @@ class LinearTodoApp(NSObject):
         self.menu_open = False
         self.footer_item = None
         self.footer_rows, self.footer_active = [], []
+        self.bell = Bell()
+        self.ding = NSSound.alloc().initWithContentsOfFile_byReference_(str(CHIME_PATH), True)
         self.shortcut_row = None
         self.hover_timer = None
         self.shown = None
@@ -996,6 +1003,8 @@ class LinearTodoApp(NSObject):
         self.client.cfg = self.cfg
         self.state.scope = self.cfg.view_as or ""
         self.cfg_mtime = mtime
+        # Un réglage change ce que le menu contient : ce qui apparaît n'est pas nouveau.
+        self.bell = Bell()
         if before != (self.cfg.view_as, self.cfg.teams, self.cfg.include_backlog):
             # Le périmètre a changé : ce qui est en mémoire décrit une autre question.
             self.target, self.work, self.work_at, self.done_at, self.signature = None, Work(), None, None, ""
@@ -1249,8 +1258,16 @@ class LinearTodoApp(NSObject):
         if not snapshot.error:
             self.state.prune(snapshot.items)
             self.state.save()
+            if self.bell.feed(self.visible(), snapshot.identity):
+                self.chime()
         self.push_map()
         self.stop_spinner()
+
+    @objc.python_method
+    def chime(self) -> None:
+        if self.cfg.sounds and self.ding is not None:
+            self.ding.stop()
+            self.ding.play()
 
     @objc.python_method
     def person_for(self, display_name: str) -> Person:
@@ -1886,6 +1903,13 @@ class LinearTodoApp(NSObject):
         self.footer_rows.append((row, "rectangle.3.group"))
         if opened:
             self.footer_active.append(row)
+        row = self.add_action(menu, "Sons" + ("  ✓" if self.cfg.sounds else ""), "toggleSounds:", symbol="bell")
+        row.setToolTip_(
+            "Sons : activés, cliquer pour couper" if self.cfg.sounds else "Sons : coupés, cliquer pour les activer"
+        )
+        self.footer_rows.append((row, "bell"))
+        if self.cfg.sounds:
+            self.footer_active.append(row)
         # Virgule pour les réglages, comme partout sur macOS. Les raccourcis clavier restent
         # les seules commandes atteignables quand le menu est déroulé au-delà de l'écran.
         row = self.add_action(menu, "Réglages et mode d'emploi", "openHelp:", ",", symbol="gearshape")
@@ -1990,6 +2014,14 @@ class LinearTodoApp(NSObject):
     def openStatus_(self, sender):
         """La page d'état de Linear : la seule qui dise si la panne est chez eux."""
         NSWorkspace.sharedWorkspace().openURL_(NSURL.URLWithString_(STATUS_PAGE))
+
+    def toggleSounds_(self, sender):
+        self.reload_config()
+        self.cfg.sounds = not self.cfg.sounds
+        self.cfg.save()
+        self.cfg_mtime = self.config_mtime()
+        if self.menu_open:
+            self.build_menu(self.menu)
 
     def toggleLogin_(self, sender):
         program = self.bundle_program()

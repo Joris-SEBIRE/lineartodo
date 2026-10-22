@@ -206,6 +206,11 @@ de leurs lignes compte encore, elle est rattrapée en fin de section plutôt qu'
 - le compteur de Linear additionne des notifications, la pastille compte des sujets : trois \
 commentaires sur un même ticket font 3 chez lui et 1 ici, exactement comme sa boîte n'affiche \
 qu'une ligne
+- une note douce de vibraphone sonne à chaque notification non lue jamais entendue, reconnue à \
+son identifiant et à sa date : un sujet nouveau, ou une nouvelle notification sur un sujet déjà \
+compté, rouge ou bleu. Lire un sujet, qui passe du rouge au bleu, ne crée aucune notification \
+non lue et ne sonne pas ; une ligne qui revient à l'identique se tait. La première lecture et le passage à une autre identité ne sonnent \
+jamais. `sounds` la coupe, aussi depuis le menu **Sons**
 
 ## Une ligne
 

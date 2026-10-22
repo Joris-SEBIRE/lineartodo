@@ -407,6 +407,9 @@ class Item:
     warm: bool = False
     # Tout ce que le sujet porte est en sommeil : la ligne reste visible, sans compter nulle part.
     asleep: bool = False
+    # Notifications non lues que porte la ligne, chacune avec sa date : une jamais entendue fait
+    # sonner, même sur un sujet déjà compté. Lire n'en crée aucune, donc ne sonne pas.
+    notes: tuple[str, ...] = ()
 
     @property
     def group(self) -> Group:

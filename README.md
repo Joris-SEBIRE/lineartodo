@@ -122,6 +122,11 @@ suivants.
 - **⌘** maintenu : « Copier le lien ». **⌃** maintenu : « Copier l'identifiant » (`ENG-142`), de
   quoi nommer une branche.
 - **⌘R** : actualise tout de suite.
+- Une note douce de vibraphone sonne à chaque nouvelle notification non lue : sur un sujet
+  nouveau, sur un sujet lu, ou sur un sujet déjà rouge. Lire un sujet, qui passe du rouge au bleu,
+  ne sonne pas, ni une ligne qui s'efface un instant puis revient à l'identique, ni la première
+  lecture. Le menu **Sons** la coupe. Le son est `src/lineartodo/nouveau.wav`, fabriqué par
+  `scripts/sons.py`.
 - Un ticket ne paraît qu'une fois, dans sa catégorie la plus forte — celle qui vient le plus
   haut dans le menu. Un ticket notifié, qui t'est assigné et dont la notification est rangée
   est *un* ticket : il se lit dans la boîte de réception, pas trois fois de suite.

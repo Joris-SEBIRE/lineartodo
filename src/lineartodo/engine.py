@@ -194,6 +194,7 @@ def inbox_items(notes: list[Note]) -> list[Item]:
                 faces=tuple(faces.values()),
                 warm=not hot,
                 asleep=not awake,
+                notes=tuple(f"{note.id}@{note.updated_at.isoformat()}" for note in awake if note.unread),
                 hint=f"{len(batch)} événement(s) de {who}, {state} : {_natures(batch)}",
             )
         )
