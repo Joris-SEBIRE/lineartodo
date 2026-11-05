@@ -170,7 +170,8 @@ Dans l'ordre où on les lit, du plus utile au moins utile :
 
 1. **Ma boîte de réception** — tout ce qui s'y trouve encore, lu ou non, du plus récent au plus
    ancien. Une ligne par sujet, comme dans Linear : un ticket qui a reçu trois commentaires et une
-   assignation fait une ligne, pas quatre.
+   assignation fait une ligne, pas quatre. Sur un document, c'est une ligne par fil de
+   commentaires : deux fils de trois messages font deux lignes.
 2. **Tickets qui me sont assignés** — ceux qui ne sont pas clos, du plus récemment bougé au plus
    dormant. Le visage est celui du **créateur** : l'assigné, c'est toi, il n'apprendrait rien. Ce
    qui retient un ticket porte son étiquette rouge sur la ligne : `en retard`, `bloqué`, `urgent`,

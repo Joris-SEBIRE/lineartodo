@@ -384,6 +384,8 @@ def _note(node: dict) -> Note:
             entity = f"{label} {block.get('name') or ''}".strip()
             entity_key = block.get("id") or ""
             url = url or block.get("url") or ""
+    # Linear regroupe les commentaires d'un document par fil, que nomme son premier message.
+    entity_key = entity_key or node.get("parentCommentId") or node.get("commentId") or node.get("documentId") or ""
     if not url:
         url = (comment.url if comment else "") or (issue.url if issue else "")
     return Note(

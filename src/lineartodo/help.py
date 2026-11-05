@@ -160,7 +160,8 @@ reparaît pas : c'est la règle d'une ligne par sujet
 quelle main
 
 **Un sujet, une ligne, une unité.** Linear regroupe dans sa boîte tous les événements d'un même \
-ticket : l'app fait pareil, sinon les deux comptes ne se ressemblent plus. Une ligne vaut donc \
+ticket, et ceux d'un document fil de commentaires par fil : l'app fait pareil, sinon les deux \
+comptes ne se ressemblent plus. Une ligne vaut donc \
 un, et sa pastille porte ce un : les lignes d'une section s'additionnent au nombre de son titre, \
 et les sections au badge de la barre. Deux dans la pastille violette, ce sont deux lignes \
 marquées d'un 1 violet — la somme se vérifie à l'œil, sans rien croire sur parole.

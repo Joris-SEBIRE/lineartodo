@@ -369,7 +369,7 @@ class Note:
 
     @property
     def key(self) -> str:
-        """Sujet auquel rattacher la ligne : un ticket, sinon l'entité visée."""
+        """Sujet auquel rattacher la ligne : un ticket, sinon l'entité visée, ou le fil d'un document."""
         return self.issue.id if self.issue else (self.entity_key or self.id)
 
 

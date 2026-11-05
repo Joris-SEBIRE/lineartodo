@@ -120,7 +120,7 @@ fragment Note on Notification {
     initiative { id name url }
     comment { ...Word }
   }
-  ... on DocumentNotification { documentId }
+  ... on DocumentNotification { documentId commentId parentCommentId }
   ... on PostNotification { postId }
   ... on CustomerNotification { customer { id name url } }
   ... on CustomerNeedNotification { relatedIssue { ...Brief } }
@@ -223,6 +223,7 @@ fragment Note on Notification {
   }
   ... on ProjectNotification { project { id name url } comment { ...Word } }
   ... on InitiativeNotification { initiative { id name url } comment { ...Word } }
+  ... on DocumentNotification { documentId commentId parentCommentId }
   ... on CustomerNeedNotification { relatedIssue { ...Brief } }
 }
 fragment Brief on Issue {
