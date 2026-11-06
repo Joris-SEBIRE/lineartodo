@@ -75,7 +75,7 @@ FORM: tuple[tuple[str, tuple[tuple[str, str, str, str], ...]], ...] = (
     (
         "Boîte de réception",
         (
-            ("inbox_pages", "Pages au maximum", "garde-fou : on s'arrête dès que les non-lues sont trouvées", ""),
+            ("inbox_pages", "Pages au maximum", "garde-fou, pour la boîte puis pour l'historique des rangées", ""),
             ("inbox_page_size", "Notifications par page", "50 est le pas servi par Linear", ""),
         ),
     ),

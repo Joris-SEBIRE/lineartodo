@@ -613,11 +613,15 @@ class Linear:
         return signature, data.get("notificationsUnreadCount")
 
     def fetch_inbox(self, wanted: int | None = None) -> tuple[list[Note], Person | None, list[str], int | None]:
-        """Boîte de réception, page par page, jusqu'à tenir toutes les non-lues.
+        """Boîte de réception en entier, puis l'historique de ce qui en est sorti.
 
-        Linear sert les lues et les non-lues mêlées, sans filtre sur `readAt` : on pagine
-        jusqu'à ce que le compte officiel soit atteint, ce qui tient en une page dans le cas
-        normal. Le plafond de pages existe pour ne pas dérouler une boîte de plusieurs années.
+        Linear ne filtre pas sur `readAt`, mais il sait écarter les notifications rangées : la
+        boîte se lit donc seule, jusqu'au bout. Lire les plus récentes de toutes jusqu'au compte
+        de non-lues laissait tomber une notification lue et restée dans la boîte dès que
+        cinquante autres l'avaient dépassée. L'historique ne sert qu'aux lignes rangées : il se
+        filtre sur la date de rangement, la fenêtre de la section, puisque ranger ne touche pas
+        `updatedAt` et qu'une notification ancienne rangée à l'instant serait au fond de la
+        liste. Le plafond de pages existe pour ne pas dérouler une boîte de plusieurs années.
 
         `wanted` est le compte annoncé par la sonde, qui vient de le lire : le redemander
         coûterait une requête pour la même réponse.
@@ -633,38 +637,43 @@ class Linear:
                 if exc.kind in ("panne", "réseau", "quota", "refus"):
                     raise
                 self.counts_unread = False
-        notes: list[Note] = []
+        found: dict[str, Note] = {}
         viewer: Person | None = None
-        cursor, truncated, more = None, [], False
-        for _ in range(max(1, self.cfg.inbox_pages)):
-            document = INBOX_QUERY if self.rich_inbox else INBOX_FALLBACK
-            variables = self.newest_page(size, cursor)
-            try:
-                data = self.graphql(document, variables, "boîte de réception")
-            except LinearError as exc:
-                if self.rich_inbox and exc.kind == "erreur":
-                    # Un champ de présentation a disparu : on repart sans eux plutôt que de
-                    # laisser la boîte inaccessible.
-                    self.rich_inbox = False
-                    data = self.graphql(INBOX_FALLBACK, variables, "boîte de réception")
-                else:
-                    raise
-            viewer = viewer or _person(data.get("viewer"))
-            block = data.get("notifications") or {}
-            notes += [_note(node) for node in (block.get("nodes") or []) if node]
-            page_info = block.get("pageInfo") or {}
-            backward = self.newest_first is False
-            more = bool(page_info.get("hasPreviousPage" if backward else "hasNextPage"))
-            cursor = page_info.get("startCursor" if backward else "endCursor")
-            unread = sum(1 for note in notes if note.unread and not note.archived)
-            enough_read = sum(1 for note in notes if note.archived or not note.unread) >= self.cfg.filed_rows
-            if not more or (wanted is not None and unread >= wanted and enough_read):
-                break
+        truncated: list[str] = []
+        since = (datetime.now(timezone.utc) - timedelta(days=max(1, self.cfg.filed_days))).isoformat()
+        filed = {"archivedAt": {"gt": since}}
+        for archived in (False, True) if self.cfg.show_filed else (False,):
+            cursor, more = None, False
+            for _ in range(max(1, self.cfg.inbox_pages)):
+                document = INBOX_QUERY if self.rich_inbox else INBOX_FALLBACK
+                variables = {**self.newest_page(size, cursor), "archived": archived, "filter": filed if archived else None}
+                try:
+                    data = self.graphql(document, variables, "boîte de réception")
+                except LinearError as exc:
+                    if self.rich_inbox and exc.kind == "erreur":
+                        # Un champ de présentation a disparu : on repart sans eux plutôt que de
+                        # laisser la boîte inaccessible.
+                        self.rich_inbox = False
+                        data = self.graphql(INBOX_FALLBACK, variables, "boîte de réception")
+                    else:
+                        raise
+                viewer = viewer or _person(data.get("viewer"))
+                block = data.get("notifications") or {}
+                for note in (_note(node) for node in (block.get("nodes") or []) if node):
+                    found.setdefault(note.id, note)
+                page_info = block.get("pageInfo") or {}
+                backward = self.newest_first is False
+                more = bool(page_info.get("hasPreviousPage" if backward else "hasNextPage"))
+                cursor = page_info.get("startCursor" if backward else "endCursor")
+                if not more:
+                    break
+            if more:
+                where = "rangées" if archived else "boîte de réception"
+                truncated.append(f"{where} : {len(found)} notifications lues, les plus anciennes ignorées")
+        notes = sorted(found.values(), key=lambda note: note.updated_at, reverse=True)
         unread = sum(1 for note in notes if note.unread and not note.archived)
         if wanted is not None and unread < wanted:
-            truncated.append(f"{wanted} non-lues annoncées, {unread} lues dans les {len(notes)} plus récentes")
-        elif wanted is None and more:
-            truncated.append(f"{len(notes)} notifications lues, les plus anciennes ignorées")
+            truncated.append(f"{wanted} non-lues annoncées, {unread} lues dans la boîte")
         return notes, viewer, truncated, wanted
 
     def fetch_work(self, user_id: str | None, rows: int = 100) -> tuple[Work, list[str]]:

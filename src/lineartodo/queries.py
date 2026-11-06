@@ -5,8 +5,9 @@ changement de périmètre ou de personne observée ne demande pas un second docu
 """
 
 # Les notifications traitées dans l'inbox de Linear sont archivées, pas supprimées : sans
-# `includeArchived`, la boîte ne rend que ce qui reste à traiter et l'historique est vide. On
-# demande tout, et c'est l'app qui trie ce qui compte de ce qui est déjà rangé.
+# `includeArchived`, la boîte ne rend que ce qui reste à traiter et l'historique est vide. La
+# lecture passe `$archived` : sans, pour tenir toute la boîte ; avec, filtrée sur la date de
+# rangement, pour l'historique.
 INCLUDE_ARCHIVED = "includeArchived: true"
 
 # Dans quel sens Linear pagine ses notifications. Rien ne le dit dans le schéma, et se
@@ -90,11 +91,13 @@ fragment Task on Issue {
 
 INBOX_QUERY = (
     """
-query Inbox($first: Int, $last: Int, $after: String, $before: String) {
+query Inbox(
+  $first: Int, $last: Int, $after: String, $before: String, $archived: Boolean, $filter: NotificationFilter
+) {
   viewer { ...Who email }
   notifications(
     first: $first, last: $last, after: $after, before: $before
-    includeArchived: true, orderBy: updatedAt
+    includeArchived: $archived, filter: $filter, orderBy: updatedAt
   ) {
     pageInfo { hasNextPage endCursor hasPreviousPage startCursor }
     nodes { ...Note }
@@ -200,11 +203,13 @@ fragment Ending on Issue {
 # seul `type`, et l'URL depuis le ticket ou le message.
 INBOX_FALLBACK = (
     """
-query InboxLean($first: Int, $last: Int, $after: String, $before: String) {
+query InboxLean(
+  $first: Int, $last: Int, $after: String, $before: String, $archived: Boolean, $filter: NotificationFilter
+) {
   viewer { ...Who email }
   notifications(
     first: $first, last: $last, after: $after, before: $before
-    includeArchived: true, orderBy: updatedAt
+    includeArchived: $archived, filter: $filter, orderBy: updatedAt
   ) {
     pageInfo { hasNextPage endCursor hasPreviousPage startCursor }
     nodes { ...Note }

@@ -92,11 +92,14 @@ ni plus ni moins : un ticket d'une équipe privée que tu ne vois pas n'existe p
 - **Boîte de réception** : `notifications`, la même liste que l'inbox de Linear. Chaque \
 notification porte son `type`, sa `category`, son `readAt`, son `archivedAt`, son \
 `snoozedUntilAt`, la personne qui l'a causée, et le ticket, le message ou le projet visé. \
-Traiter une notification dans Linear l'archive : la lecture demande donc `includeArchived`, \
-sinon l'historique serait vide. Linear ne sait pas filtrer sur « non lue » : l'app pagine \
-jusqu'à retrouver le compte de non-lues qu'il annonce, ce qui tient en une page dans le cas \
-normal. Le sens du tri n'étant pas documenté, il est mesuré une fois par lancement plutôt que \
-supposé
+Traiter une notification dans Linear l'archive. L'app lit donc la boîte seule, sans les \
+archivées, jusqu'au bout : une notification lue mais gardée dans la boîte y reste visible même \
+quand des dizaines d'autres l'ont dépassée. Puis, avec `includeArchived`, les notifications \
+rangées dans la fenêtre de leur section, filtrées sur leur date de rangement : ranger ne change \
+pas la date de mise à jour, et une notification ancienne rangée à l'instant serait sinon au fond \
+de la liste. Linear ne sait pas filtrer sur « non lue » : le compte de \
+non-lues qu'il annonce sert de contrôle. Le sens du tri n'étant pas documenté, il est mesuré \
+une fois par lancement plutôt que supposé
 - **Mes tickets** : une recherche `issues` — ce qui m'est assigné et n'est pas clos, avec son \
 état, son échéance, sa priorité, son cycle et les tickets qui le bloquent
 - **Tickets clos** : la même recherche une fois `completed` ou `canceled`, avec l'historique \
